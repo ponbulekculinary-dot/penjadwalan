@@ -4,12 +4,15 @@
   "type": "module",
   "version": "0.1.0",
   "scripts": {
-    "dev": "wrangler dev --local",
+    "build": "node build.mjs",
+    "dev": "npm run build && wrangler dev --local",
     "db:local": "wrangler d1 migrations apply frame-kamera --local",
-    "deploy": "wrangler deploy",
-    "test": "node scheduler.test.mjs"
+    "deploy": "npm run build && wrangler deploy",
+    "test": "node scheduler.test.mjs",
+    "test:login": "npm run build && node login.test.mjs"
   },
   "devDependencies": {
+    "playwright": "1.62.1",
     "wrangler": "4.156.0"
   }
 }

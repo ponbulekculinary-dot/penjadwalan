@@ -67,6 +67,16 @@ async function readBody(request) {
 
 async function handleApi(request, env) {
   const path = new URL(request.url).pathname;
+  if (request.method === 'GET' && path === '/api/health') {
+    try {
+      const tables = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users','sessions','availability','requests','cash','schedules')").all();
+      const account = tables.results.length === 6 && await env.DB.prepare('SELECT name FROM users LIMIT 1').first();
+      if (!account) return fail(503, 'Layanan login belum siap. Coba hubungkan lagi nanti.');
+      return json({service: 'frame-kamera', ready: true});
+    } catch {
+      return fail(503, 'Layanan login belum siap. Coba hubungkan lagi nanti.');
+    }
+  }
   if (request.method === 'GET' && path === '/api/schedule') {
     const member = await memberFromSession(request, env);
     if (!member) return fail(401, 'Silakan login.');

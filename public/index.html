@@ -25,15 +25,19 @@
   </style>
 </head>
 <body>
-<noscript><div style="padding:18px;background:#ffe8d8;color:#6d2e20;font:16px system-ui">Demo ini perlu JavaScript. Unduh file HTML lalu buka dengan Chrome, Safari, atau browser biasa.</div></noscript>
+<div id="demo-banner" class="hidden" role="status" style="padding:12px 20px;background:#e5edcf;color:#294c35;text-align:center;font-size:13px;line-height:1.5"><b>Mode demo.</b> Gunakan data contoh. Data hanya di tab ini, tidak dibagikan ke anggota lain, dan hilang saat halaman dimuat ulang.</div>
+<noscript><div style="padding:18px;background:#ffe8d8;color:#6d2e20;font:16px system-ui">Tampilan ini tidak dapat menjalankan login karena JavaScript tidak aktif. Buka alamat web aplikasi yang sudah aktif di browser.</div></noscript>
 <div id="login" class="login app">
   <section class="login-hero">
     <div class="brand"><span class="mark">⌗</span> frame<span style="color:#d9ef80">.</span></div>
     <div class="hero-copy"><div class="eyebrow">Tim Kamera Tamsir × MOI</div><h1>Pelayanan rapi.<br><em>Hati lebih tenang.</em></h1><p>Satu tempat untuk mengatur ketersediaan dan mengajukan pilihan ibadah. Jadwal bulanan jadi lebih mudah disiapkan.</p></div>
     <div class="hero-foot">Jadwal yang jelas, komunikasi yang lebih sederhana.</div>
   </section>
-  <section class="login-side"><div class="login-card"><span class="preview">✦ Preview desain H5</span><h2>Selamat datang kembali</h2><p class="sub">Masuk untuk mengatur ketersediaan pelayananmu.</p>
-    <form id="login-form"><label class="field"><span>Username</span><input class="input" name="username" autocomplete="username" placeholder="Contoh: emen" required /></label><label class="field"><span>Password</span><input class="input" name="password" type="password" autocomplete="current-password" placeholder="Masukkan password" required /></label><div id="login-error" class="error" role="alert"></div><button class="primary" type="submit">Masuk ke aplikasi →</button></form>
+  <section class="login-side"><div class="login-card"><span class="preview">Tim kamera Tamsir × MOI</span><h2>Selamat datang kembali</h2><p class="sub">Masuk untuk mengatur ketersediaan pelayananmu.</p>
+    <p id="login-status" class="hint" role="status" aria-live="polite">Login belum tersedia. Halaman ini perlu terhubung ke layanan aplikasi melalui alamat web yang aktif.</p>
+    <form id="login-form" method="post"><fieldset id="login-fields" disabled style="border:0;padding:0;margin:0;min-width:0"><label class="field"><span>Username</span><input class="input" name="username" autocomplete="username" placeholder="Contoh: emen" required /></label><label class="field"><span>Password</span><input class="input" name="password" type="password" autocomplete="current-password" placeholder="Masukkan password" required /></label><div id="login-error" class="error" role="alert" tabindex="-1"></div><button id="login-button" class="primary" type="submit">Login belum tersedia</button></fieldset></form>
+    <button id="demo-start" type="button" class="primary hidden" style="margin-top:12px">Coba demo di sini →</button>
+    <button id="login-retry" type="button" class="secondary hidden" style="margin-top:12px">Coba hubungkan lagi</button>
     <div class="login-demo"><b>Akun awal</b><br>Anggota: <b>emen</b> · Bendahara: <b>bowo</b><br>Password awal: <b>Password123</b><br><small>Setelah masuk, ganti password lewat menu Akun.</small></div>
   </div></section>
 </div>
@@ -46,6 +50,223 @@
 <div id="toast" class="toast hidden" role="status"></div>
 <script>
 (() => {
+const SERVICE_RULES = [
+  {location:'Tamsir',service:'IR 1',start:510,end:600,roles:['SWITCHER','CAMERA 1','JIMMY JIB','CAMERA 3']},
+  {location:'Tamsir',service:'IR 2',start:660,end:750,roles:['SWITCHER','CAMERA 1','JIMMY JIB']},
+  {location:'Tamsir',service:'IR 3',start:1020,end:1110,roles:['SWITCHER','CAMERA 1','JIMMY JIB']},
+  {location:'MOI',service:'IR 1',start:510,end:600,roles:['SWITCHER','CAMERA 1','CAMERA 2']},
+  {location:'MOI',service:'IR 2',start:630,end:720,roles:['SWITCHER','CAMERA 1','CAMERA 2']},
+  {location:'MOI',service:'IR 3',start:780,end:870,roles:['SWITCHER','CAMERA 1','CAMERA 2']},
+  {location:'MOI',service:'IR 4',start:990,end:1080,roles:['SWITCHER','CAMERA 1','CAMERA 2']}
+];
+const ALL = ['SWITCHER','CAMERA 1','CAMERA 2','CAMERA 3','JIMMY JIB'];
+const MEMBER_ROLES = {
+  EMEN:ALL, DEDY:ALL, AYU:ALL.filter(x=>x!=='JIMMY JIB'), BOWO:['CAMERA 1'],
+  ANDRE:ALL, BILLY:ALL, OWEN:ALL.filter(x=>x!=='SWITCHER'), MELVERN:ALL,
+  DAUD:ALL.filter(x=>x!=='SWITCHER'), EVAN:ALL, TIMI:ALL,
+  EVELYN:['CAMERA 1','CAMERA 2'], AGUS:ALL, DEMAS:ALL.filter(x=>x!=='SWITCHER')
+};
+const FAIR_MEMBERS = Object.keys(MEMBER_ROLES).filter(x=>MEMBER_ROLES[x].includes('SWITCHER'));
+const AMOUNT = {'SWITCHER':200000,'CAMERA 1':150000,'CAMERA 2':150000,'CAMERA 3':150000,'JIMMY JIB':150000};
+const ROLE_ORDER = {'SWITCHER':0,'JIMMY JIB':1,'CAMERA 3':2,'CAMERA 2':3,'CAMERA 1':4};
+
+function sundays(month){
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))throw new Error('Bulan tidak valid.');
+  const [year,number]=month.split('-').map(Number),days=[];
+  for(let d=1;d<=new Date(Date.UTC(year,number,0)).getUTCDate();d++){
+    const date=new Date(Date.UTC(year,number-1,d));
+    if(date.getUTCDay()===0)days.push(date.toISOString().slice(0,10));
+  }
+  return days;
+}
+function slotsForMonth(month){
+  return sundays(month).flatMap(day=>SERVICE_RULES.flatMap(rule=>rule.roles.map(role=>({date:day,location:rule.location,service:rule.service,role,start:rule.start,end:rule.end,amount:AMOUNT[role],member:null}))));
+}
+function isUnavailable(member,slot,availability){
+  return availability.some(x=>x.member===member&&(
+    x.kind==='day'&&x.day===slot.date ||
+    x.kind==='month_off'&&x.month===slot.date.slice(0,7) ||
+    x.kind==='month_morning'&&x.month===slot.date.slice(0,7)&&(
+      !['IR 1','IR 2'].includes(slot.service)||x.location!=='Kedua lokasi'&&x.location!==slot.location
+    )
+  ));
+}
+function canAssign(member,slot,assignments,availability){
+  if(!MEMBER_ROLES[member]?.includes(slot.role)||isUnavailable(member,slot,availability))return false;
+  for(const other of assignments){
+    if(other.member!==member||other.date!==slot.date)continue;
+    if(slot.start<other.end&&other.start<slot.end)return false;
+    if(slot.location!==other.location){
+      if(slot.start>=other.end&&slot.start-other.end<60)return false;
+      if(other.start>=slot.end&&other.start-slot.end<60)return false;
+    }
+  }
+  return true;
+}
+function random(seed){let value=seed>>>0;return()=>{value=(1664525*value+1013904223)>>>0;return value/4294967296}}
+function seedFor(month,trial){let value=trial+1;for(const c of month)value=(value*31+c.charCodeAt(0))>>>0;return value}
+function requestMatches(member,slot,requests){return requests.some(x=>x.member===member&&x.day===slot.date&&x.location===slot.location&&x.service===slot.service)}
+function totalFor(member,assignments){return assignments.reduce((sum,x)=>sum+(x.member===member?x.amount:0),0)}
+function summary(assignments,requests=[]){
+  const totals=Object.fromEntries(Object.keys(MEMBER_ROLES).map(x=>[x,totalFor(x,assignments)]));
+  const amounts=FAIR_MEMBERS.map(x=>totals[x]);
+  const gap=Math.max(...amounts)-Math.min(...amounts);
+  const missing=assignments.filter(x=>!x.member).length;
+  const matched=assignments.filter(x=>x.member&&requestMatches(x.member,x,requests)).length;
+  return {totals,gap,missing,matched,fairnessWithinTarget:gap<=200000};
+}
+function validateAssignment(assignments,index,member,availability){
+  const slot=assignments[index];
+  if(!slot)throw new Error('Slot tidak ditemukan.');
+  if(member!==null&&(!MEMBER_ROLES[member]||!canAssign(member,slot,assignments.filter((_,i)=>i!==index),availability)))throw new Error('Anggota tidak tersedia, role tidak sesuai, atau jam bertabrakan.');
+  return true;
+}
+function generate(month,availability=[],requests=[]){
+  const template=slotsForMonth(month);
+  let best=null,bestScore=Infinity;
+  for(let trial=0;trial<6;trial++){
+    const rand=random(seedFor(month,trial));
+    const assignments=template.map(x=>({...x}));
+    const order=assignments.map((_,i)=>i).sort((a,b)=>{
+      const x=assignments[a],y=assignments[b];
+      return x.date.localeCompare(y.date)||ROLE_ORDER[x.role]-ROLE_ORDER[y.role]||x.start-y.start||x.location.localeCompare(y.location);
+    });
+    const totals=Object.fromEntries(Object.keys(MEMBER_ROLES).map(x=>[x,0]));
+    const counts=Object.fromEntries(Object.keys(MEMBER_ROLES).map(x=>[x,0]));
+    const dayAssignments=new Map();
+    for(const index of order){
+      const slot=assignments[index];
+      const onDay=dayAssignments.get(slot.date)||[];
+      let choice=null,lowest=Infinity;
+      for(const member of Object.keys(MEMBER_ROLES)){
+        if(!canAssign(member,slot,onDay,availability))continue;
+        const eligible=FAIR_MEMBERS.includes(member);
+        const sameDay=onDay.filter(x=>x.member===member).length;
+        const preference=requestMatches(member,slot,requests)?-450:0;
+        const score=(eligible?totals[member]/1000:counts[member]*80)+sameDay*95+preference+rand()*270;
+        if(score<lowest){lowest=score;choice=member}
+      }
+      if(choice){slot.member=choice;totals[choice]+=slot.amount;counts[choice]++;onDay.push(slot);dayAssignments.set(slot.date,onDay)}
+    }
+    const report=summary(assignments,requests);
+    const score=report.missing*10000000+report.gap/1000*8-report.matched*70;
+    if(score<bestScore){bestScore=score;best={slots:assignments,summary:report}}
+    if(report.missing===0&&report.fairnessWithinTarget&&trial>=5)break;
+  }
+  return best;
+}
+
+// Browser-only demo. No fetch, cookies, localStorage, or live database access.
+// build.mjs bundles the same scheduler used by the live Worker above this code.
+const demoMembers = Object.keys(MEMBER_ROLES);
+const demo = {user: null, leaves: [], requests: [], cash: {}, passwords: {}, schedules: {}, nextId: 1};
+function demoFail(status, message) { const error = new Error(message); error.status = status; throw error; }
+function demoMonth() { return new Date().toLocaleDateString('sv-SE', {timeZone:'Asia/Jakarta'}).slice(0,7); }
+function demoDay(value) { return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !isNaN(Date.parse(value)); }
+function demoValidMonth(value) { return typeof value === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(value); }
+function demoUnavailable(member, day, location, service, entries = demo.leaves) {
+  return isUnavailable(member, {date:day, location, service}, entries);
+}
+function demoComplete(slots) {
+  if (slots.some(x=>!x.member)) demoFail(409, 'Masih ada slot kosong. Lengkapi sebelum ajukan jadwal.');
+  for (const [index, slot] of slots.entries()) {
+    try { validateAssignment(slots,index,slot.member,demo.leaves); }
+    catch { demoFail(409, 'Ada jadwal yang bertentangan dengan izin atau jam terbaru. Revisi draft dahulu.'); }
+  }
+}
+window.FrameDemo = {
+  async request(path, data) {
+    await new Promise(resolve=>setTimeout(resolve,80));
+    const url = new URL(path, 'https://frame.demo');
+    const route = url.pathname;
+    if (route === '/api/health') return {service:'frame-kamera',ready:true};
+    if (route === '/api/login') {
+      const name = String(data.username||'').trim().toUpperCase();
+      if (!demoMembers.includes(name) || data.password !== (demo.passwords[name]||'Password123')) demoFail(401, 'Username atau password demo belum sesuai.');
+      demo.user=name;
+      return {user:name};
+    }
+    const member=demo.user;
+    if (!member) demoFail(401,'Silakan login.');
+    if (route === '/api/state') {
+      const cash=demo.cash[demoMonth()]||{};
+      return structuredClone({user:member,leaves:demo.leaves.filter(x=>x.member===member),requests:demo.requests.filter(x=>x.member===member),cash:member==='BOWO'?cash:cash[member]?{[member]:cash[member]}:{},month:demoMonth()});
+    }
+    if (route === '/api/logout') { demo.user=null;return {ok:true}; }
+    if (route === '/api/password') {
+      if (data.current !== (demo.passwords[member]||'Password123')) demoFail(400,'Password demo saat ini tidak sesuai.');
+      if (data.next.length<8||data.current===data.next) demoFail(400,'Password baru harus berbeda dan minimal 8 karakter.');
+      demo.passwords[member]=data.next;return {ok:true};
+    }
+    if (route === '/api/cash') {
+      if (member!=='BOWO') demoFail(403,'Hanya Bowo yang bisa mengubah status kas.');
+      if (!demoMembers.includes(data.member)||!['paid','unpaid'].includes(data.status)) demoFail(400,'Status kas tidak valid.');
+      demo.cash[demoMonth()]??={};demo.cash[demoMonth()][data.member]=data.status;return {ok:true};
+    }
+    if (route === '/api/availability') {
+      const {kind}=data;
+      if (!['day','month_off','month_morning'].includes(kind)||kind==='day'&&!demoDay(data.date)||kind!=='day'&&!demoValidMonth(data.month)||kind==='month_morning'&&!['Kedua lokasi','Tamsir','MOI'].includes(data.location)) demoFail(400,'Ketersediaan tidak valid.');
+      const entry={id:demo.nextId++,member,kind,day:kind==='day'?data.date:'',month:kind==='day'?'':data.month,location:kind==='month_morning'?data.location:'',note:data.note||'',created:Date.now()};
+      if (demo.leaves.some(x=>x.member===member&&x.kind===kind&&x.day===entry.day&&x.month===entry.month&&x.location===entry.location)) demoFail(409,'Aturan ini sudah dicatat.');
+      if (demo.requests.some(x=>x.member===member&&demoUnavailable(member,x.day,x.location,x.service,[entry]))) demoFail(409,'Ada special request yang bertentangan. Hapus request itu terlebih dahulu.');
+      const published=demo.schedules[kind==='day'?data.date.slice(0,7):data.month]?.published;
+      if (published?.some(x=>x.member===member&&isUnavailable(member,x,[entry]))) demoFail(409,'Jadwal tanggal ini sudah terbit. Hubungi Emen untuk perubahan tugas.');
+      demo.leaves.push(entry);return {ok:true};
+    }
+    if (route === '/api/request') {
+      if (!demoDay(data.date)||!SERVICE_RULES.some(x=>x.location===data.location&&x.service===data.service)) demoFail(400,'Tanggal atau ibadah tidak valid.');
+      if (demoUnavailable(member,data.date,data.location,data.service)) demoFail(409,'Pilihan ini bertentangan dengan ketersediaan yang kamu catat.');
+      if (demo.requests.some(x=>x.member===member&&x.day===data.date&&x.location===data.location&&x.service===data.service)) demoFail(409,'Request yang sama sudah diajukan.');
+      demo.requests.push({id:demo.nextId++,member,day:data.date,location:data.location,service:data.service,note:data.note||'',created:Date.now()});return {ok:true};
+    }
+    if (route === '/api/delete') {
+      const key=data.kind==='availability'?'leaves':data.kind==='request'?'requests':null;
+      if (!key) demoFail(400,'Data hapus tidak valid.');
+      if (!demo[key].some(x=>x.id===data.id&&x.member===member)) demoFail(404,'Data tidak ditemukan.');
+      demo[key]=demo[key].filter(x=>x.id!==data.id||x.member!==member);return {ok:true};
+    }
+    const month=data?.month||url.searchParams.get('month')||demoMonth();
+    if (!demoValidMonth(month)) demoFail(400,'Bulan tidak valid.');
+    const record=demo.schedules[month];
+    if (route === '/api/schedule') {
+      const manager=['EMEN','EVAN'].includes(member),published=record?.published||null;
+      const publishedSummary=published?summary(published):null;
+      const draft=manager?record?.draft||null:null;
+      return structuredClone({month,status:record?.status||null,approvalNote:manager?record?.approvalNote||null:null,draft,draftSummary:draft?summary(draft):null,published:manager?published:published?.filter(x=>x.member===member)||null,counts:published?Object.fromEntries(demoMembers.map(name=>[name,published.filter(x=>x.member===name).length])):null,ownPK:publishedSummary?.totals[member]??null,totals:manager?publishedSummary?.totals||null:null,publishedAt:record?.publishedAt||null,roles:member==='EMEN'?MEMBER_ROLES:undefined});
+    }
+    if (route === '/api/schedule/generate') {
+      if (member!=='EMEN') demoFail(403,'Hanya Emen yang bisa generate jadwal.');
+      if (record?.status==='pending') demoFail(409,'Jadwal sedang menunggu keputusan Evan.');
+      const result=generate(month,demo.leaves,demo.requests);
+      demo.schedules[month]={...record,draft:result.slots,status:'draft',approvalNote:null};return structuredClone(result);
+    }
+    if (!record?.draft) demoFail(404,'Buat draft jadwal dulu.');
+    if (route === '/api/schedule/assign') {
+      if (member!=='EMEN') demoFail(403,'Hanya Emen yang bisa mengubah draft.');
+      if (record.status!=='draft') demoFail(409,'Draft sedang menunggu approval Evan.');
+      try { validateAssignment(record.draft,data.index,data.member,demo.leaves); } catch(error){ demoFail(409,error.message); }
+      record.draft[data.index].member=data.member;return {ok:true};
+    }
+    if (route === '/api/schedule/submit') {
+      if (member!=='EMEN') demoFail(403,'Hanya Emen yang bisa mengajukan jadwal.');
+      if (record.status!=='draft') demoFail(409,'Jadwal sudah diajukan.');
+      demoComplete(record.draft);record.status='pending';record.approvalNote=null;return {status:'pending'};
+    }
+    if (['/api/schedule/approve','/api/schedule/reject'].includes(route)) {
+      if (member!=='EVAN') demoFail(403,'Hanya Evan yang bisa memberi keputusan jadwal.');
+      if (record.status!=='pending') demoFail(409,'Tidak ada jadwal yang menunggu approval.');
+      if (route.endsWith('/reject')) {record.status='draft';record.approvalNote=data.note||'Perlu revisi dari Evan.';return {status:'draft'};}
+      demoComplete(record.draft);record.published=structuredClone(record.draft);record.publishedAt=Date.now();record.status='published';record.approvalNote=null;return {status:'published'};
+    }
+    demoFail(404,'Endpoint demo tidak ditemukan.');
+  }
+};
+
+})();
+</script>
+<script>
+(() => {
+  let demoMode=false;
   const members=['EMEN','DEDY','AYU','BOWO','ANDRE','BILLY','OWEN','MELVERN','DAUD','EVAN','TIMI','EVELYN','AGUS','DEMAS'];
   const services=[['Tamsir','IR 1'],['Tamsir','IR 2'],['Tamsir','IR 3'],['MOI','IR 1'],['MOI','IR 2'],['MOI','IR 3'],['MOI','IR 4']];
   const icons={home:'<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',leave:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18M8 15h3"/>',request:'<path d="M12 3v18M3 12h18"/>',schedule:'<path d="M3 4h18v16H3zM7 2v4M17 2v4M3 9h18M7 13h4M7 17h8"/>',cash:'<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M16 15h2"/>',account:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'};
@@ -95,13 +316,54 @@
     return html;
   }
   function renderCash(){const month=new Date().toLocaleDateString('id-ID',{month:'long',year:'numeric'});if(state.user!=='BOWO')return `${header('Uang kas','Lihat status pembayaran kas kamu untuk '+month+'.')}<div class="form-layout"><div class="card form-card"><h2>Status kas saya</h2><p>Periode ${month}</p><div class="item"><b>${esc(state.user)}</b><span class="pill ${cashStatus(state.user)==='unpaid'?'gold':cashStatus(state.user)==='unrecorded'?'gray':''}">${cashLabel(state.user)}</span></div></div><aside class="note"><h3>Perlu perubahan status?</h3><p>Hubungi Bowo selaku bendahara. Hanya Bowo yang bisa memperbarui status sudah bayar atau belum bayar.</p></aside></div>`;return `${header('Uang kas tim','Kelola status pembayaran anggota untuk '+month+'.')}<div class="form-layout"><div class="card form-card"><h2>Daftar pembayaran</h2><p>Hanya akun Bowo yang dapat mengubah status.</p><div class="list">${members.map(name=>`<div class="item cash-row"><div><b>${esc(name)}</b><small>${cashLabel(name)}</small></div><div class="cash-actions"><button class="secondary ${cashStatus(name)==='paid'?'selected':''}" data-cash-member="${name}" data-cash-value="paid" aria-label="Tandai ${name} sudah bayar">Sudah bayar</button><button class="secondary ${cashStatus(name)==='unpaid'?'selected':''}" data-cash-member="${name}" data-cash-value="unpaid" aria-label="Tandai ${name} belum bayar">Belum bayar</button></div></div>`).join('')}</div></div><aside class="note"><h3>Aturan akses</h3><p>Anggota hanya melihat status kas miliknya. Popup pengingat muncul saat login bila statusnya belum bayar. Perubahan status dilakukan oleh bendahara.</p></aside></div>`}
-  function renderAccount(){return `${header('Akun saya','Kelola akses pribadi untuk masuk ke aplikasi.')}<div class="form-layout"><div class="card form-card"><h2>Ganti password</h2><p>Gunakan password baru yang berbeda dari password awal.</p><form id="password-form"><label class="field"><span>Password saat ini</span><input class="input" type="password" name="current" autocomplete="current-password" required></label><label class="field"><span>Password baru</span><input class="input" type="password" name="next" autocomplete="new-password" minlength="8" required></label><label class="field"><span>Ulangi password baru</span><input class="input" type="password" name="confirm" autocomplete="new-password" minlength="8" required></label><div id="password-error" class="error" role="alert"></div><button class="primary">Simpan password baru →</button></form></div><aside class="note"><h3>Akun ${esc(state.user)}</h3><p>Akunmu terhubung ke server. Ganti password awal supaya hanya kamu yang bisa mengakses akun ini.</p><button class="secondary" id="mobile-logout" style="margin-top:20px">Keluar akun</button></aside></div>`}
+  function renderAccount(){return `${header('Akun saya','Kelola akses pribadi untuk masuk ke aplikasi.')}<div class="form-layout"><div class="card form-card"><h2>Ganti password</h2><p>Gunakan password baru yang berbeda dari password awal.</p><form id="password-form"><label class="field"><span>Password saat ini</span><input class="input" type="password" name="current" autocomplete="current-password" required></label><label class="field"><span>Password baru</span><input class="input" type="password" name="next" autocomplete="new-password" minlength="8" required></label><label class="field"><span>Ulangi password baru</span><input class="input" type="password" name="confirm" autocomplete="new-password" minlength="8" required></label><div id="password-error" class="error" role="alert"></div><button class="primary">Simpan password baru →</button></form></div><aside class="note"><h3>Akun ${esc(state.user)}</h3><p>${demoMode?'Password di mode demo hanya berlaku sampai halaman dimuat ulang. Gunakan password contoh.':'Akunmu terhubung ke server. Ganti password awal supaya hanya kamu yang bisa mengakses akun ini.'}</p><button class="secondary" id="mobile-logout" style="margin-top:20px">Keluar akun</button></aside></div>`}
   function render(){renderNav();$('#side-name').textContent=state.user.charAt(0)+state.user.slice(1).toLowerCase();$('#side-avatar').textContent=state.user[0];$('.sidebar-bottom small').textContent=state.user==='BOWO'?'Bendahara tim kamera':state.user==='EMEN'?'Penyusun jadwal':state.user==='EVAN'?'Approver jadwal':'Anggota tim kamera';$('#crumb').textContent=(nav.find(x=>x[0]===state.view)?.[1]||'Beranda').toUpperCase()+' / TIM KAMERA';$('#view').innerHTML=({home:renderHome,leave:renderLeave,request:renderRequest,cash:renderCash,schedule:renderSchedule,account:renderAccount})[state.view]();}
-  async function api(path, data){const res=await fetch(path,{method:data===undefined?'GET':'POST',credentials:'same-origin',headers:data===undefined?{}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});const payload=await res.json();if(!res.ok)throw new Error(payload.error||'Permintaan gagal.');return payload}
+  async function api(path, data){
+    if(demoMode)return window.FrameDemo.request(path,data);
+    if(!['http:','https:'].includes(location.protocol))throw new Error('File tampilan ini belum terhubung ke aplikasi. Login tersedia melalui alamat web aplikasi yang aktif.');
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),8000);
+    try{
+      const res=await fetch(path,{method:data===undefined?'GET':'POST',credentials:'same-origin',cache:'no-store',signal:controller.signal,headers:data===undefined?{}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});
+      const body=await res.text();let payload;
+      try{payload=JSON.parse(body)}catch{throw new Error('Alamat ini belum terhubung ke layanan aplikasi. Halaman tampilan saja belum bisa dipakai untuk login.')}
+      if(!res.ok){const error=new Error(typeof payload?.error==='string'?payload.error:'Layanan aplikasi sedang bermasalah. Silakan coba lagi.');error.status=res.status;throw error}
+      return payload;
+    }catch(error){
+      if(error.name==='AbortError')throw new Error('Layanan login belum merespons. Periksa koneksi, lalu coba lagi.');
+      if(error instanceof TypeError)throw new Error('Tidak bisa menghubungi layanan aplikasi. Periksa koneksi atau alamat web yang dibuka.');
+      throw error;
+    }finally{clearTimeout(timer)}
+  }
+  async function initializeLogin(){
+    $('#demo-start').classList.add('hidden');$('#login-fields').disabled=true;$('#login-button').disabled=false;$('#login-button').textContent='Menghubungkan...';$('#login-retry').classList.add('hidden');$('#login-status').textContent='Menghubungkan ke layanan login...';$('#login-error').textContent='';
+    try{
+      const health=await api('/api/health');
+      if(health?.service!=='frame-kamera'||health.ready!==true)throw new Error('Alamat ini belum terhubung ke layanan aplikasi yang aktif.');
+      try{await refresh()}catch(error){if(error.status!==401)throw error}
+      $('#login-form').classList.remove('hidden');$('.login-demo').classList.remove('hidden');$('#login-fields').disabled=false;$('#login-button').textContent='Masuk ke aplikasi →';$('#login-status').textContent=demoMode?'Demo siap. Masuk dengan emen, evan, atau bowo dan password Password123.':'Terhubung. Silakan masuk dengan akunmu.';
+    }catch(error){
+      $('#login-form').classList.add('hidden');$('.login-demo').classList.add('hidden');$('#login-button').textContent='Login belum tersedia';$('#login-status').textContent=error.message;if(window.FrameDemo)$('#demo-start').classList.remove('hidden');
+      if(['http:','https:'].includes(location.protocol))$('#login-retry').classList.remove('hidden');
+    }
+  }
   async function refresh(){const data=await api('/api/state');state.user=data.user;state.leaves=data.leaves.map(x=>({id:x.id,user:x.member,kind:x.kind,date:x.day,month:x.month,location:x.location,note:x.note,created:x.created}));state.requests=data.requests.map(x=>({id:x.id,user:x.member,date:x.day,location:x.location,service:x.service,note:x.note,created:x.created}));state.cash=data.cash;$('#login').classList.add('hidden');$('#workspace').classList.remove('hidden');render()}
-  async function login(e){e.preventDefault();const d=new FormData(e.target);try{await api('/api/login',{username:String(d.get('username')),password:String(d.get('password'))});state.view='home';state.cashDismissed=false;await refresh();$('#login-error').textContent='';if(cashStatus(state.user)==='unpaid')$('#cash-modal').classList.remove('hidden')}catch(err){$('#login-error').textContent=err.message}}
+  async function login(e){
+    e.preventDefault();const button=$('#login-button');if(button.disabled||$('#login-fields').disabled)return;
+    const d=new FormData(e.target);let accepted=false;
+    button.disabled=true;button.textContent='Sedang masuk...';e.target.setAttribute('aria-busy','true');$('#login-error').textContent='';$('#login-status').textContent='Memeriksa akun...';
+    try{
+      await api('/api/login',{username:String(d.get('username')),password:String(d.get('password'))});accepted=true;
+      state.view='home';state.cashDismissed=false;await refresh();$('#login-status').textContent='Terhubung. Silakan masuk dengan akunmu.';
+      if(cashStatus(state.user)==='unpaid')$('#cash-modal').classList.remove('hidden');
+    }catch(error){
+      $('#login-error').textContent=accepted&&error.status===401?'Akun berhasil diperiksa, tetapi sesi login tidak tersimpan. Buka alamat aplikasi langsung di browser lalu coba lagi.':error.message;
+      $('#login-status').textContent='Belum berhasil masuk.';$('#login-error').focus();
+    }finally{button.disabled=false;button.textContent='Masuk ke aplikasi →';e.target.removeAttribute('aria-busy')}
+  }
   async function logout(){try{await api('/api/logout',{})}catch(err){flash(err.message);return}state.user=null;state.cash={};$('#cash-modal').classList.add('hidden');$('#workspace').classList.add('hidden');$('#login').classList.remove('hidden');$('#login-form').reset();$('#login-error').textContent=''}
   $('#login-form').addEventListener('submit',login);
+  $('#login-retry').addEventListener('click',initializeLogin);
+  $('#demo-start').addEventListener('click',()=>{demoMode=true;$('#demo-banner').classList.remove('hidden');$('.preview').textContent='Mode demo · data contoh';$('.login-demo small').textContent='Gunakan akun contoh. Perubahan hanya berlaku di tab ini.';initializeLogin()});
   $('#logout').addEventListener('click',logout);
   $('#cash-close').addEventListener('click',()=>{$('#cash-modal').classList.add('hidden');state.cashDismissed=true});
   $('#today').textContent=new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'});
@@ -127,7 +389,7 @@
     if(e.target.id==='request-form'){e.preventDefault();const d=new FormData(e.target);try{await api('/api/request',{date:d.get('date'),location:d.get('location'),service:d.get('service'),note:d.get('note')});await refresh();flash('Special request berhasil diajukan.')}catch(err){$('#request-error').textContent=err.message}return}
     if(e.target.id==='password-form'){e.preventDefault();const d=new FormData(e.target),next=String(d.get('next'));if(next!==d.get('confirm')){$('#password-error').textContent='Konfirmasi password belum sama.';return}try{await api('/api/password',{current:d.get('current'),next});e.target.reset();$('#password-error').textContent='';flash('Password berhasil diganti.')}catch(err){$('#password-error').textContent=err.message}}
   });
-  refresh().catch(()=>{});
+  initializeLogin();
 })();
 </script>
 </body>
