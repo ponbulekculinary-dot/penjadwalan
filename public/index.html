@@ -91,7 +91,13 @@ function isUnavailable(member,slot,availability){
     )
   ));
 }
+function dailyLocationChanges(member,slot,assignments){
+  const day=[...assignments.filter(x=>x.member===member&&x.date===slot.date),slot]
+    .sort((a,b)=>a.start-b.start);
+  return day.reduce((count,current,index)=>count+(index>0&&current.location!==day[index-1].location?1:0),0);
+}
 function canAssign(member,slot,assignments,availability){
+  if(dailyLocationChanges(member,slot,assignments)>1)return false;
   if(!MEMBER_ROLES[member]?.includes(slot.role)||isUnavailable(member,slot,availability))return false;
   for(const other of assignments){
     if(other.member!==member||other.date!==slot.date)continue;
@@ -118,6 +124,7 @@ function summary(assignments,requests=[]){
 function validateAssignment(assignments,index,member,availability){
   const slot=assignments[index];
   if(!slot)throw new Error('Slot tidak ditemukan.');
+  if(member!==null&&dailyLocationChanges(member,slot,assignments.filter((_,i)=>i!==index))>1)throw new Error('Anggota hanya boleh pindah lokasi satu kali pada tanggal ini.');
   if(member!==null&&(!MEMBER_ROLES[member]||!canAssign(member,slot,assignments.filter((_,i)=>i!==index),availability)))throw new Error('Anggota tidak tersedia, role tidak sesuai, atau jam bertabrakan.');
   return true;
 }
