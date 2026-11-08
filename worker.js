@@ -1,3 +1,4 @@
+import {scheduleView} from './schedule-view.js';
 import {generate, summary, validateAssignment, isUnavailable, MEMBER_ROLES} from './scheduler.js';
 
 const MEMBERS = new Set(['EMEN','DEDY','AYU','BOWO','ANDRE','BILLY','OWEN','MELVERN','DAUD','EVAN','TIMI','EVELYN','AGUS','DEMAS']);
@@ -69,8 +70,8 @@ async function handleApi(request, env) {
   const path = new URL(request.url).pathname;
   if (request.method === 'GET' && path === '/api/health') {
     try {
-      const tables = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users','sessions','availability','requests','cash','schedules')").all();
-      const account = tables.results.length === 6 && await env.DB.prepare('SELECT name FROM users LIMIT 1').first();
+      const tables = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users','sessions','availability','requests','cash','schedules','schedule_history','app_meta')").all();
+      const account = tables.results.length === 8 && await env.DB.prepare('SELECT name FROM users LIMIT 1').first();
       if (!account) return fail(503, 'Layanan login belum siap. Coba hubungkan lagi nanti.');
       return json({service: 'frame-kamera', ready: true});
     } catch {
@@ -83,18 +84,16 @@ async function handleApi(request, env) {
     const month = new URL(request.url).searchParams.get('month') || monthNow();
     if (!validMonth(month)) return fail(400, 'Bulan tidak valid.');
     const record = await env.DB.prepare('SELECT * FROM schedules WHERE month=?').bind(month).first();
-    const manager = member === 'EMEN' || member === 'EVAN';
-    const draft = manager && record?.draft_json ? JSON.parse(record.draft_json) : null;
-    const allPublished = record?.published_json ? JSON.parse(record.published_json) : null;
-    const counts = allPublished ? Object.fromEntries([...MEMBERS].map(name => [name, allPublished.filter(x=>x.member===name).length])) : null;
-    const publishedSummary = allPublished ? summary(allPublished) : null;
-    return json({month, status: record?.status || null, approvalNote: manager ? record?.approval_note || null : null,
-      draft, draftSummary: draft ? summary(draft) : null,
-      published: manager ? allPublished : allPublished?.filter(x=>x.member===member) || null,
-      counts, ownPK: publishedSummary?.totals[member] ?? null,
-      totals: manager ? publishedSummary?.totals || null : null,
-      publishedAt: record?.published_at || null, roles: member === 'EMEN' ? MEMBER_ROLES : undefined});
+    const manager = ['EMEN','EVAN'].includes(member);
+    const [availability,requests,history,epoch] = manager ? await Promise.all([
+      scheduleAvailability(env,month),
+      env.DB.prepare('SELECT * FROM requests WHERE day LIKE ?').bind(month+'-%').all(),
+      env.DB.prepare('SELECT revision,actor,action,created FROM schedule_history WHERE month=? ORDER BY revision DESC LIMIT 50').bind(month).all(),
+      env.DB.prepare("SELECT value FROM app_meta WHERE key='availability_revision'").first()
+    ]) : [[],{results:[]},{results:[]},{value:0}];
+    return json({month,...scheduleView(record?{draft:record.draft_json?JSON.parse(record.draft_json):null,published:record.published_json?JSON.parse(record.published_json):null,status:record.status,revision:record.revision,approvalNote:record.approval_note,publishedAt:record.published_at}:null,member,availability,requests.results,history.results,epoch.value)});
   }
+
   if (request.method === 'GET' && path === '/api/state') {
     const member = await memberFromSession(request, env);
     if (!member) return fail(401, 'Silakan login.');
@@ -115,11 +114,11 @@ async function handleApi(request, env) {
     const password = String(data.password || '');
     if (!MEMBERS.has(name)) return fail(401, 'Username atau password belum sesuai.');
     const row = await env.DB.prepare('SELECT password_hash FROM users WHERE name=?').bind(name).first();
-    const matches = row && (row.password_hash ? await passwordMatches(password, row.password_hash) : password === 'Password123');
+    const matches = row?.password_hash && password !== 'Password123' && await passwordMatches(password, row.password_hash);
     if (!matches) {
       return fail(401, 'Username atau password belum sesuai.');
     }
-    if (!row.password_hash) await env.DB.prepare('UPDATE users SET password_hash=? WHERE name=?').bind(await hashPassword(password), name).run();
+
     const token = hex(crypto.getRandomValues(new Uint8Array(32)));
     await env.DB.prepare('INSERT INTO sessions VALUES (?,?,?)').bind(await sha256(token), name, now() + 7*24*60*60*1000).run();
     const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
@@ -136,9 +135,9 @@ async function handleApi(request, env) {
   if (path === '/api/password') {
     const current = String(data.current || ''), next = String(data.next || '');
     const row = await env.DB.prepare('SELECT password_hash FROM users WHERE name=?').bind(member).first();
-    const matches = row.password_hash ? await passwordMatches(current, row.password_hash) : current === 'Password123';
+    const matches = row?.password_hash && await passwordMatches(current, row.password_hash);
     if (!matches) return fail(400, 'Password saat ini tidak sesuai.');
-    if (next.length < 8 || next === current) return fail(400, 'Password baru harus berbeda dan minimal 8 karakter.');
+    if (next.length < 8 || next === current || next === 'Password123') return fail(400, 'Password baru harus berbeda dan minimal 8 karakter.');
     await env.DB.prepare('UPDATE users SET password_hash=? WHERE name=?').bind(await hashPassword(next), member).run();
     return json({ok: true});
   }
@@ -148,65 +147,54 @@ async function handleApi(request, env) {
     await env.DB.prepare('INSERT INTO cash VALUES (?,?,?,?) ON CONFLICT(month,member) DO UPDATE SET status=excluded.status,updated_by=excluded.updated_by').bind(monthNow(), data.member, data.status, member).run();
     return json({ok: true});
   }
-  if (path === '/api/schedule/generate') {
-    if (member !== 'EMEN') return fail(403, 'Hanya Emen yang bisa generate jadwal.');
-    const month = data.month;
-    if (!validMonth(month)) return fail(400, 'Bulan tidak valid.');
-    const current = await env.DB.prepare('SELECT status FROM schedules WHERE month=?').bind(month).first();
-    if (current?.status === 'pending') return fail(409, 'Jadwal sedang menunggu keputusan Evan.');
-    const [availability, requests] = await Promise.all([
-      env.DB.prepare("SELECT * FROM availability WHERE day LIKE ? OR month=?").bind(month+'-%', month).all(),
-      env.DB.prepare('SELECT * FROM requests WHERE day LIKE ?').bind(month+'-%').all()
-    ]);
-    const result = generate(month, availability.results, requests.results);
-    await env.DB.prepare("INSERT INTO schedules(month,draft_json,generated_at,status) VALUES (?,?,?,'draft') ON CONFLICT(month) DO UPDATE SET draft_json=excluded.draft_json,generated_at=excluded.generated_at,status='draft',approval_note=NULL")
-      .bind(month, JSON.stringify(result.slots), now()).run();
-    return json({draft: result.slots, summary: result.summary});
-  }
-  if (path === '/api/schedule/assign') {
-    if (member !== 'EMEN') return fail(403, 'Hanya Emen yang bisa mengubah draft.');
-    const {month, index} = data, assignee = data.member;
-    if (!validMonth(month) || !Number.isInteger(index) || assignee !== null && !MEMBERS.has(assignee)) return fail(400, 'Pilihan slot tidak valid.');
-    const record = await env.DB.prepare('SELECT draft_json,status FROM schedules WHERE month=?').bind(month).first();
-    if (!record?.draft_json) return fail(404, 'Buat draft jadwal dulu.');
-    if (record.status !== 'draft') return fail(409, 'Draft sedang menunggu approval Evan.');
-    const slots = JSON.parse(record.draft_json);
-    if (index < 0 || index >= slots.length) return fail(400, 'Slot tidak ditemukan.');
-    const availability = await scheduleAvailability(env, month);
-    try { validateAssignment(slots, index, assignee, availability); }
-    catch (error) { return fail(409, error.message); }
-    slots[index].member = assignee;
-    await env.DB.prepare('UPDATE schedules SET draft_json=? WHERE month=?').bind(JSON.stringify(slots), month).run();
-    return json({draft: slots, summary: summary(slots)});
-  }
-  if (path === '/api/schedule/submit') {
-    if (member !== 'EMEN') return fail(403, 'Hanya Emen yang bisa mengajukan jadwal.');
-    const month = data.month;
-    if (!validMonth(month)) return fail(400, 'Bulan tidak valid.');
-    const record = await env.DB.prepare('SELECT draft_json,status FROM schedules WHERE month=?').bind(month).first();
-    if (!record?.draft_json) return fail(404, 'Buat draft jadwal dulu.');
-    if (record.status !== 'draft') return fail(409, 'Jadwal sudah diajukan.');
-    const slots = JSON.parse(record.draft_json);
-    if (slots.some(x=>!x.member)) return fail(409, 'Masih ada slot kosong. Lengkapi sebelum ajukan jadwal.');
-    if (invalidScheduledSlots(slots, await scheduleAvailability(env, month))) return fail(409, 'Ada jadwal yang bertentangan dengan izin atau jam terbaru. Generate ulang.');
-    await env.DB.prepare("UPDATE schedules SET status='pending',approval_note=NULL WHERE month=?").bind(month).run();
-    return json({status: 'pending'});
-  }
-  if (path === '/api/schedule/approve' || path === '/api/schedule/reject') {
-    if (member !== 'EVAN') return fail(403, 'Hanya Evan yang bisa memberi keputusan jadwal.');
-    const month = data.month;
-    if (!validMonth(month)) return fail(400, 'Bulan tidak valid.');
-    const record = await env.DB.prepare('SELECT draft_json,status FROM schedules WHERE month=?').bind(month).first();
-    if (!record?.draft_json || record.status !== 'pending') return fail(409, 'Tidak ada jadwal yang menunggu approval.');
-    if (path.endsWith('/reject')) {
-      await env.DB.prepare("UPDATE schedules SET status='draft',approval_note=? WHERE month=?").bind(String(data.note||'Perlu revisi dari Evan.').slice(0,500), month).run();
-      return json({status: 'draft'});
+  if (path.startsWith('/api/schedule/')) {
+    const action=path.split('/').pop(), month=data.month;
+    if (!['generate','revise','assign','submit','approve','reject'].includes(action)) return fail(404,'Endpoint tidak ditemukan.');
+    if (member!==(['approve','reject'].includes(action)?'EVAN':'EMEN')) return fail(403,'Akun ini tidak boleh melakukan tindakan jadwal tersebut.');
+    if (!validMonth(month)||!Number.isInteger(data.revision)||!Number.isInteger(data.availabilityRevision)) return fail(400,'Muat ulang jadwal sebelum menyimpan.');
+    const record=await env.DB.prepare('SELECT * FROM schedules WHERE month=?').bind(month).first();
+    if ((record?.revision||0)!==data.revision) return fail(409,'Jadwal telah berubah. Muat ulang dan review versi terbaru.');
+    const epoch=await env.DB.prepare("SELECT value FROM app_meta WHERE key='availability_revision'").first();
+    if (epoch.value!==data.availabilityRevision) return fail(409,'Ketersediaan tim berubah. Muat ulang dan review kembali.');
+    let slots=record?.draft_json?JSON.parse(record.draft_json):null, status=record?.status, approvalNote=null;
+    const availability=await scheduleAvailability(env,month);
+    if (action==='revise') {
+      if(status!=='published'||!record.published_json)return fail(409,'Revisi hanya dapat dibuat dari jadwal yang sudah terbit.');
+      slots=JSON.parse(record.published_json);status='draft';
+    } else if (action==='generate') {
+      if (status==='pending') return fail(409,'Jadwal sedang menunggu keputusan Evan.');
+      const requests=await env.DB.prepare('SELECT * FROM requests WHERE day LIKE ?').bind(month+'-%').all();
+      slots=generate(month,availability,requests.results).slots;status='draft';
+    } else {
+      if (!slots) return fail(404,'Buat draft jadwal dulu.');
+      if (status!==(['approve','reject'].includes(action)?'pending':'draft')) return fail(409,'Status jadwal berubah atau sedang terkunci untuk review.');
+      if (action==='assign') {
+        if (!Number.isInteger(data.index)||data.member!==null&&!MEMBERS.has(data.member)) return fail(400,'Pilihan slot tidak valid.');
+        try { validateAssignment(slots,data.index,data.member,availability); } catch(error) {return fail(409,error.message);}
+        slots[data.index].member=data.member;
+      }
+      if (action==='submit'||action==='approve') {
+        if (invalidScheduledSlots(slots,availability)) return fail(409,'Lengkapi slot kosong dan perbaiki konflik sebelum mengirim atau menyetujui.');
+        status=action==='submit'?'pending':'published';
+      }
+      if (action==='reject') {
+        approvalNote=String(data.note||'').trim();if(!approvalNote||approvalNote.length>500)return fail(400,'Isi catatan revisi maksimal 500 karakter.');
+        status='draft';
+      }
     }
-    const slots = JSON.parse(record.draft_json);
-    if (invalidScheduledSlots(slots, await scheduleAvailability(env, month))) return fail(409, 'Jadwal sudah bertentangan dengan izin atau jam terbaru. Minta Emen revisi.');
-    await env.DB.prepare("UPDATE schedules SET published_json=?,published_at=?,status='published',approved_by='EVAN',approval_note=NULL WHERE month=?")
-      .bind(JSON.stringify(slots), now(), month).run();
-    return json({status: 'published'});
+    const published=action==='approve'?JSON.stringify(slots):record?.published_json||null;
+    // One conditional write and audit triggers execute atomically. Availability changes also invalidate stale approval.
+    const result=await env.DB.prepare(`INSERT INTO schedules(month,draft_json,published_json,status,revision,updated_by,action,approval_note,generated_at,published_at,approved_by)
+      SELECT ?,?,?,?,?,?,?,?,?,?,? WHERE (SELECT value FROM app_meta WHERE key='availability_revision')=?
+      ON CONFLICT(month) DO UPDATE SET draft_json=excluded.draft_json,published_json=excluded.published_json,status=excluded.status,
+      revision=excluded.revision,updated_by=excluded.updated_by,action=excluded.action,approval_note=excluded.approval_note,
+      generated_at=excluded.generated_at,published_at=excluded.published_at,approved_by=excluded.approved_by
+      WHERE schedules.revision=?`)
+      .bind(month,JSON.stringify(slots),published,status,data.revision+1,member,action,approvalNote,
+        action==='generate'?now():record?.generated_at||null,action==='approve'?now():record?.published_at||null,
+        action==='approve'?member:record?.approved_by||null,data.availabilityRevision,data.revision).run();
+    if(!result.meta.changes)return fail(409,'Jadwal atau ketersediaan berubah. Muat ulang sebelum melanjutkan.');
+    return json({status,revision:data.revision+1});
   }
   if (path === '/api/availability') {
     const {kind} = data, day = data.date || '', month = data.month || '', location = data.location || '';
@@ -219,11 +207,12 @@ async function handleApi(request, env) {
     if (availability.results.some(x => x.kind === kind && (kind === 'day' ? x.day === day : x.month === month && x.location === entry.location))) return fail(409, 'Aturan ini sudah dicatat.');
     if (requests.results.some(x => blocked([entry], x.day, x.location, x.service))) return fail(409, 'Ada special request yang bertentangan. Hapus request itu terlebih dahulu.');
     const affectedMonth = kind === 'day' ? day.slice(0,7) : month;
-    const published = await env.DB.prepare('SELECT published_json FROM schedules WHERE month=?').bind(affectedMonth).first();
+    const published = await env.DB.prepare('SELECT published_json,revision FROM schedules WHERE month=?').bind(affectedMonth).first();
     if (published?.published_json && JSON.parse(published.published_json).some(slot => slot.member === member && isUnavailable(member, slot, [{member, ...entry}]))) {
       return fail(409, 'Jadwal tanggal ini sudah terbit. Hubungi Emen untuk perubahan tugas.');
     }
-    await env.DB.prepare('INSERT INTO availability(member,kind,day,month,location,note,created) VALUES (?,?,?,?,?,?,?)').bind(member, kind, entry.day, entry.month, entry.location, String(data.note || '').slice(0,500), now()).run();
+    const saved=await env.DB.prepare('INSERT INTO availability(member,kind,day,month,location,note,created) SELECT ?,?,?,?,?,?,? WHERE COALESCE((SELECT revision FROM schedules WHERE month=?),0)=?').bind(member, kind, entry.day, entry.month, entry.location, String(data.note || '').slice(0,500), now(),affectedMonth,published?.revision||0).run();
+    if(!saved.meta.changes)return fail(409,'Jadwal baru berubah. Muat ulang sebelum mengajukan izin.');
     return json({ok: true}, 201);
   }
   if (path === '/api/request') {

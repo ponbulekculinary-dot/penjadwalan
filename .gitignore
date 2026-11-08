@@ -3,3 +3,10 @@ __pycache__/
 *.pyc
 node_modules/
 .wrangler/
+
+*.sqlite
+*.sqlite-*
+.env
+.env.*
+.dev.vars
+.dev.vars.*

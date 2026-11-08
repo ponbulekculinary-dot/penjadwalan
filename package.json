@@ -8,11 +8,16 @@
     "dev": "npm run build && wrangler dev --local",
     "db:local": "wrangler d1 migrations apply frame-kamera --local",
     "deploy": "npm run build && wrangler deploy",
-    "test": "node scheduler.test.mjs",
-    "test:login": "npm run build && node login.test.mjs"
+    "test": "node scheduler.test.mjs && node api.test.mjs",
+    "test:login": "npm run build && node login.test.mjs",
+    "test:review": "npm run build && node review.test.mjs",
+    "predeploy": "node scripts/deploy-check.mjs"
   },
   "devDependencies": {
     "playwright": "1.62.1",
     "wrangler": "4.156.0"
+  },
+  "engines": {
+    "node": ">=22.13.0"
   }
 }

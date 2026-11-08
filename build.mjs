@@ -1,7 +1,11 @@
 import {readFile, writeFile, mkdir} from 'node:fs/promises';
-const template = await readFile(new URL('./ui/index.html', import.meta.url), 'utf8');
+let template = await readFile(new URL('./ui/index.html', import.meta.url), 'utf8');
+const reviewCSS=await readFile(new URL('./ui/review.css',import.meta.url),'utf8');
+const reviewJS=await readFile(new URL('./ui/review.js',import.meta.url),'utf8');
+template=template.replace('/* REVIEW_STYLES */',()=>reviewCSS).replace('// REVIEW_SCRIPT',()=>reviewJS);
 const scheduler = (await readFile(new URL('./scheduler.js', import.meta.url), 'utf8')).replace(/^export /gm, '');
+const review = (await readFile(new URL('./schedule-view.js', import.meta.url), 'utf8')).replace(/^import .*;\n/gm, '').replace(/^export /gm, '');
 const demo = await readFile(new URL('./demo-runtime.js', import.meta.url), 'utf8');
 if (!template.includes('<!-- DEMO_RUNTIME -->')) throw new Error('Demo marker missing.');
 await mkdir(new URL('./public/', import.meta.url), {recursive: true});
-await writeFile(new URL('./public/index.html', import.meta.url), template.replace('<!-- DEMO_RUNTIME -->', () => `<script>\n(() => {\n${scheduler}\n${demo}\n})();\n</script>`));
+await writeFile(new URL('./public/index.html', import.meta.url), template.replace('<!-- DEMO_RUNTIME -->', () => `<script>\n(() => {\n${scheduler}\n${review}\n${demo}\n})();\n</script>`));
