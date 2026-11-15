@@ -76,3 +76,13 @@ Riwayat berisi snapshot lengkap dan PK; endpoint riwayat hanya memberi metadata 
 ### Batas fase ini
 
 Model ketersediaan saat ini tetap izin satu tanggal, OFF sebulan, dan pagi selama sebulan; UI menyatukan akses ke preferensi di menu Ketersediaan. Kalender multi-tanggal, edit izin, pembatasan layanan arbitrer, riwayat kas multi-bulan, dan perubahan scoring pemerataan belum termasuk fase review ini. Kelompok pemerataan lama (anggota yang bisa Switcher, termasuk Ayu) belum diubah; keputusan kelompok Ayu masih perlu dikonfirmasi. Tidak ada klaim semua fitur prototype telah selesai.
+
+## Tukar dua penugasan
+
+Pada dialog edit draft milik Emen, pilih **Tukar tugas**, lalu pilih penugasan kedua. Daftar memprioritaskan pertukaran valid pada tanggal yang sama. Preview menampilkan siapa menggantikan siapa pada kedua slot dan dampak total PK bulanan, tanpa nominal PK per slot. **Urungkan edit terakhir** mengembalikan kedua penugasan bersama selama versi jadwal/ketersediaan belum berubah.
+
+`POST /api/schedule/swap` menerima `month`, `index`, `targetIndex`, `revision`, dan `availabilityRevision`. Hanya Emen, pada status draft. Backend membuat salinan hasil akhir, menukar nama (role/jam/tarif slot tetap), lalu memvalidasi kedua anggota beserta tugas lain pada tanggal yang terdampak. Kedua slot disimpan dalam satu conditional write dan satu entri audit `swap`; tidak ada slot kosong sementara atau hasil setengah tersimpan. Jadwal resmi tidak berubah sampai Evan menyetujui revisi.
+
+Kedua slot harus terisi anggota berbeda. Pertukaran dapat lintas tanggal/role jika keduanya memenuhi role, izin, jam, jeda 60 menit, dan maksimal satu perpindahan lokasi/hari. Ini pertukaran dua penugasan, bukan pemindahan seluruh rangkaian tugas sehari. Konflik yang tetap ada setelah pertukaran ditolak dengan alasan.
+
+`npm test` menyertakan 5 tes swap (aturan dan API/database). `npm run test:swap` menguji tombol, preview, penyimpanan, undo, mode demo, dan dialog mobile 320/375/430. Untuk menyimpan screenshot fixture QA, set `FRAME_SCREENSHOT_DIR` ke direktori di luar repository.

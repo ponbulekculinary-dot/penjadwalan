@@ -32,3 +32,21 @@ export function scheduleView(record,member,availability=[],requests=[],history=[
     history:manager?history:undefined
   };
 }
+
+// Evaluate the final arrangement, not the conflicting intermediate single-slot edits.
+// Return a copy so a failed validation cannot partially mutate the draft.
+export function swapAssignments(slots,index,targetIndex,availability=[]) {
+  if(!Number.isInteger(index)||!Number.isInteger(targetIndex)||!slots[index]||!slots[targetIndex]||index===targetIndex)throw new Error('Pilih dua slot yang berbeda dan valid.');
+  const a=slots[index],b=slots[targetIndex];
+  if(!a.member||!b.member)throw new Error('Tukar tugas memerlukan dua slot terisi. Gunakan Ganti anggota untuk slot kosong.');
+  if(a.member===b.member)throw new Error('Kedua slot sudah diisi anggota yang sama.');
+  const next=slots.map(s=>({...s}));
+  next[index].member=b.member;next[targetIndex].member=a.member;
+  const members=new Set([a.member,b.member]),dates=new Set([a.date,b.date]);
+  for(const [i,slot] of next.entries()){
+    if(!members.has(slot.member)||!dates.has(slot.date))continue;
+    const reason=assignmentReason(slot.member,slot,next,availability,i);
+    if(reason)throw new Error(`${slot.member} · ${slot.date} · ${slot.location} ${slot.service}: ${reason}.`);
+  }
+  return next;
+}
