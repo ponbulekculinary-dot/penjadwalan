@@ -101,7 +101,7 @@ Kedua slot harus terisi anggota berbeda. Pertukaran dapat lintas tanggal/role ji
 
 ### Automatic deployment to the existing Netlify site
 
-`.github/workflows/deploy-netlify.yml` runs on pushes to `main` (or manually via Actions). It uses Node.js 24, `npm ci`, `npm run build`, and pinned Netlify CLI to publish `public` with `--prod --no-build`. `build.mjs` writes `public/index.html`; the workflow verifies that output and checks the deployed HTML. It does not run the Cloudflare-specific `npm run deploy`.
+`.github/workflows/deploy-netlify.yml` runs on pushes to `main` (or manually via Actions). It uses Node.js 24, `npm ci`, `npm run build`, and pinned Netlify CLI to publish `public` with `--prod --no-build`. `build.mjs` writes `public/index.html`; the workflow stamps that HTML with the commit SHA, run ID, and attempt number before deployment. It does not run the Cloudflare-specific `npm run deploy`.
 
 In GitHub **Settings → Secrets and variables → Actions → New repository secret**, configure:
 
@@ -111,3 +111,7 @@ In GitHub **Settings → Secrets and variables → Actions → New repository se
 The workflow checks the site's name before deployment and stops if secrets are missing, access fails, or the ID points elsewhere. It never creates a new site or changes the existing URL. After adding secrets, rerun the failed Actions job or use **Run workflow** on `main`. If Netlify's own Git-connected automatic builds are also enabled, disable those automatic builds to avoid duplicate deployments; keep this GitHub Actions workflow as the deployment source.
 
 A green workflow means the CLI production deployment and HTML verification succeeded. Netlify publication only updates the static UI/demo; it does not provision the Worker backend or D1 database. Demo data is still temporary. Check the Actions run and Netlify production deployment before claiming the public site has been updated.
+
+Deployment verification checks the authenticated Netlify API for `ready` state, the correct site, and the published deployment ID. It then checks both the deployment HTTPS permalink and the existing production URL for HTTP 200, HTML content type, a complete HTML document, and the exact build marker. This tolerates hosting-injected HTML without accepting an old build or login/error page. Same-origin redirects are logged; cross-origin redirects fail verification. Fetches time out after 20 seconds. Failed verification retries up to 8 times, 10 seconds apart, then fails the job. Logs include status/redirect chain, content type, byte length, and failure reason, without dumping HTML or tokens.
+
+The original run's exact mismatch could not be established from this workspace: GitHub Actions log access returned Forbidden, and the network proxy rejected the Netlify CONNECT request. Byte-for-byte comparison was fragile, but hosting injection or rollout timing are possible causes, not confirmed findings. The next workflow run supplies the missing HTTP diagnostics.

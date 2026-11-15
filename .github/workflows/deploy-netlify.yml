@@ -20,6 +20,7 @@ jobs:
     env:
       NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
       NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+      FRAME_BUILD_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -43,7 +44,10 @@ jobs:
           JS
 
       - run: npm ci
+      - run: node --test scripts/verify-netlify.test.mjs
       - run: npm run build
+      - name: Stamp built HTML
+        run: node scripts/stamp-netlify.mjs
       - name: Verify publish directory
         run: test -s public/index.html
 
@@ -51,14 +55,4 @@ jobs:
         run: npx --yes netlify-cli@27.19.0 deploy --dir=public --site="$NETLIFY_SITE_ID" --prod --no-build --json > "$RUNNER_TEMP/netlify-deploy.json"
 
       - name: Verify deployed HTML
-        shell: bash
-        run: |
-          node --input-type=module <<'JS'
-          import { readFileSync, appendFileSync } from 'node:fs';
-          const result = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/netlify-deploy.json`, 'utf8'));
-          if (!result.deploy_id || !result.deploy_url) throw new Error('Netlify did not return a deployment URL and ID.');
-          const expected = readFileSync('public/index.html', 'utf8');
-          const response = await fetch(result.deploy_url);
-          if (!response.ok || await response.text() !== expected) throw new Error('Deployed HTML does not match the build output. Inspect the Netlify deployment.');
-          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Production deployment verified: ${result.deploy_url}\n\nExisting site: https://phenomenal-banoffee-60d264.netlify.app/\n`);
-          JS
+        run: node scripts/verify-netlify.mjs
