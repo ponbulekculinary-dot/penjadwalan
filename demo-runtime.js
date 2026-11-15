@@ -104,6 +104,11 @@ window.FrameDemo = {
       try { validateAssignment(record.draft,data.index,data.member,demo.leaves); } catch(error){ demoFail(409,error.message); }
       record.draft[data.index].member=data.member;track(record);return {ok:true,revision:record.revision};
     }
+    if(route==='/api/schedule/rotate'){
+      if(member!=='EMEN')demoFail(403,'Hanya Emen.');
+      if(record.status!=='draft'||record.revision!==data.revision||data.availabilityRevision!==demo.availabilityRevision)demoFail(409,'Draft berubah atau terkunci.');
+      try{record.draft=rotateAssignments(record.draft,data.indices,demo.leaves)}catch(error){demoFail(409,error.message)}track(record);return {ok:true,revision:record.revision};
+    }
     if (route === '/api/schedule/swap') {
       if(member!=='EMEN')demoFail(403,'Hanya Emen yang bisa menukar tugas.');
       if(record.status!=='draft')demoFail(409,'Draft sedang terkunci untuk review.');

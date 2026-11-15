@@ -140,18 +140,18 @@ test('Codex-style preview can explicitly run the demo without a backend', async 
   }
   await loginAs('emen');
   assert.equal(await page.locator('#demo-banner').isVisible(),true);
-  await page.locator('#mobile-nav [data-nav=schedule]').click();
+  await page.locator('#mobile-nav [data-nav=generate]').click();
   await page.locator('[data-generate]').click();
   await page.locator('[data-submit]').click();
   await page.getByText('Menunggu Evan',{exact:true}).waitFor();
   await logout();await loginAs('evan');
-  await page.locator('#mobile-nav [data-nav=schedule]').click();
+  await page.locator('#mobile-nav [data-nav=approval]').click();
   await page.locator('[data-approve]').click();
   await page.getByText('Sudah terbit',{exact:true}).waitFor();
   await logout();await loginAs('bowo');
   await page.locator('#mobile-nav [data-nav=schedule]').click();
-  await page.getByText('Total PK saya',{exact:true}).waitFor();
-  assert.equal(await page.getByText('Jumlah pelayanan tim',{exact:true}).count(),1);
+  await page.locator('#view .review-stats').waitFor();
+  assert.equal(await page.locator('#view [data-generate]').count(),0);
   assert.equal(await page.getByText('Total PK tim',{exact:true}).count(),0);
   assert.deepEqual(requests,[]);
   assert.deepEqual(errors,[]);
@@ -160,5 +160,5 @@ test('Codex-style preview can explicitly run the demo without a backend', async 
   await page.locator('#demo-start').click();
   await loginAs('bowo');
   await page.locator('#mobile-nav [data-nav=schedule]').click();
-  await page.getByText('Jadwal bulan ini belum diterbitkan.',{exact:true}).waitFor();
+  await page.getByText('Belum ada tugas resmi sesuai filter.',{exact:true}).waitFor();
 });

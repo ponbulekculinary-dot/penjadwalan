@@ -50,3 +50,16 @@ export function swapAssignments(slots,index,targetIndex,availability=[]) {
   }
   return next;
 }
+
+export function rotateAssignments(slots,indices,availability=[]) {
+  if(!Array.isArray(indices)||indices.length<3||indices.length>20||new Set(indices).size!==indices.length||indices.some(i=>!Number.isInteger(i)||!slots[i]?.member))throw new Error('Pilih 3–20 penugasan terisi yang berbeda.');
+  if(new Set(indices.map(i=>slots[i].member)).size!==indices.length)throw new Error('Pilih anggota yang berbeda untuk rotasi.');
+  const next=slots.map(s=>({...s}));
+  indices.forEach((index,n)=>{next[indices[(n+1)%indices.length]].member=slots[index].member});
+  const members=new Set(indices.map(i=>slots[i].member));
+  for(const [i,slot] of next.entries())if(members.has(slot.member)){
+    const reason=assignmentReason(slot.member,slot,next,availability,i);
+    if(reason)throw new Error(`${slot.member} · ${slot.date}: ${reason}`);
+  }
+  return next;
+}

@@ -1,5 +1,5 @@
 import {normalizedServices,selectedServices} from './availability.js';
-import {scheduleView, swapAssignments} from './schedule-view.js';
+import {scheduleView, swapAssignments, rotateAssignments} from './schedule-view.js';
 import {generate, summary, validateAssignment, isUnavailable, MEMBER_ROLES} from './scheduler.js';
 
 const MEMBERS = new Set(['EMEN','DEDY','AYU','BOWO','ANDRE','BILLY','OWEN','MELVERN','DAUD','EVAN','TIMI','EVELYN','AGUS','DEMAS']);
@@ -168,7 +168,7 @@ async function handleApi(request, env) {
   }
   if (path.startsWith('/api/schedule/')) {
     const action=path.split('/').pop(), month=data.month;
-    if (!['generate','revise','assign','swap','submit','approve','reject'].includes(action)) return fail(404,'Endpoint tidak ditemukan.');
+    if (!['generate','revise','assign','swap','rotate','submit','approve','reject'].includes(action)) return fail(404,'Endpoint tidak ditemukan.');
     if (member!==(['approve','reject'].includes(action)?'EVAN':'EMEN')) return fail(403,'Akun ini tidak boleh melakukan tindakan jadwal tersebut.');
     if (!validMonth(month)||!Number.isInteger(data.revision)||!Number.isInteger(data.availabilityRevision)) return fail(400,'Muat ulang jadwal sebelum menyimpan.');
     const record=await env.DB.prepare('SELECT * FROM schedules WHERE month=?').bind(month).first();
@@ -192,6 +192,7 @@ async function handleApi(request, env) {
         try { validateAssignment(slots,data.index,data.member,availability); } catch(error) {return fail(409,error.message);}
         slots[data.index].member=data.member;
       }
+      if(action==='rotate'){try{slots=rotateAssignments(slots,data.indices,availability)}catch(error){return fail(409,error.message)}}
       if (action==='swap') {
         try { slots=swapAssignments(slots,data.index,data.targetIndex,availability); } catch(error) {return fail(409,error.message);}
       }
