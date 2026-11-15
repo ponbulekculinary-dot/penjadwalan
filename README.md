@@ -98,3 +98,16 @@ Kedua slot harus terisi anggota berbeda. Pertukaran dapat lintas tanggal/role ji
 - Pengujian mereproduksi Ayu izin 15 dan 22 November serta preferensi 8 dan 29 November; keempatnya tetap muncul. Ini membuktikan perilaku kode dan bukan pemulihan atau pemeriksaan data sesi Netlify pengguna. Data demo lama yang hilang karena refresh tidak dapat direkonstruksi dari screenshot.
 - Jalankan `npm run db:local` sebelum memakai server lokal versi ini. Cloud/Netlify belum diperbarui; deployment produksi memerlukan migration yang sama. Mode demo masih hanya di memori tab dan reset saat refresh.
 - `npm test` mencakup 3 tes tambahan whitelist/migration/API. `npm run test:availability` menguji input, edit, rincian beberapa tanggal, persistensi, filter, mode demo, dan layar 320/375/430.
+
+### Automatic deployment to the existing Netlify site
+
+`.github/workflows/deploy-netlify.yml` runs on pushes to `main` (or manually via Actions). It uses Node.js 24, `npm ci`, `npm run build`, and pinned Netlify CLI to publish `public` with `--prod --no-build`. `build.mjs` writes `public/index.html`; the workflow verifies that output and checks the deployed HTML. It does not run the Cloudflare-specific `npm run deploy`.
+
+In GitHub **Settings → Secrets and variables → Actions → New repository secret**, configure:
+
+- `NETLIFY_AUTH_TOKEN`: a Netlify personal access token with access to the existing project. Never commit this value.
+- `NETLIFY_SITE_ID`: the existing project's **Project ID / Site ID**, found in Netlify project configuration. Use the ID for `phenomenal-banoffee-60d264`, not its URL or name.
+
+The workflow checks the site's name before deployment and stops if secrets are missing, access fails, or the ID points elsewhere. It never creates a new site or changes the existing URL. After adding secrets, rerun the failed Actions job or use **Run workflow** on `main`. If Netlify's own Git-connected automatic builds are also enabled, disable those automatic builds to avoid duplicate deployments; keep this GitHub Actions workflow as the deployment source.
+
+A green workflow means the CLI production deployment and HTML verification succeeded. Netlify publication only updates the static UI/demo; it does not provision the Worker backend or D1 database. Demo data is still temporary. Check the Actions run and Netlify production deployment before claiming the public site has been updated.
