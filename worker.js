@@ -71,8 +71,8 @@ async function handleApi(request, env) {
   const path = new URL(request.url).pathname;
   if (request.method === 'GET' && path === '/api/health') {
     try {
-      const tables = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users','sessions','availability','requests','cash','schedules','schedule_history','app_meta')").all();
-      const account = tables.results.length === 8 && await env.DB.prepare('SELECT name FROM users LIMIT 1').first();
+      const tables = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users','sessions','availability','requests','cash','schedules','schedule_history','app_meta','schedule_month_locks','exchange_requests')").all();
+      const account = tables.results.length === 10 && await env.DB.prepare('SELECT name FROM users LIMIT 1').first();
       const columns=account?await env.DB.prepare('PRAGMA table_info(availability)').all():{results:[]};
       if (!account||!columns.results.some(x=>x.name==='services_json')) return fail(503, 'Layanan login belum siap. Coba hubungkan lagi nanti.');
       return json({service: 'frame-kamera', ready: true});
@@ -96,6 +96,12 @@ async function handleApi(request, env) {
     return json({month,...scheduleView(record?{draft:record.draft_json?JSON.parse(record.draft_json):null,published:record.published_json?JSON.parse(record.published_json):null,status:record.status,revision:record.revision,approvalNote:record.approval_note,publishedAt:record.published_at}:null,member,availability,requests.results,history.results,epoch.value)});
   }
 
+  if(request.method==='GET'&&path==='/api/exchanges'){
+    const member=await memberFromSession(request,env);if(!member)return fail(401,'Silakan login.');
+    const records=['EMEN','EVAN'].includes(member)?await env.DB.prepare('SELECT * FROM exchange_requests ORDER BY created DESC').all():await env.DB.prepare('SELECT * FROM exchange_requests WHERE member=? ORDER BY created DESC').bind(member).all();
+    const locks=await env.DB.prepare('SELECT month FROM schedule_month_locks ORDER BY month').all();
+    return json({records:records.results,lockedMonths:locks.results.map(x=>x.month)});
+  }
   if (request.method === 'GET' && path === '/api/dues') {
     const member = await memberFromSession(request, env);
     if (!member) return fail(401, 'Silakan login.');
@@ -219,6 +225,22 @@ async function handleApi(request, env) {
     if(!result.meta.changes)return fail(409,'Jadwal atau ketersediaan berubah. Muat ulang sebelum melanjutkan.');
     return json({status,revision:data.revision+1});
   }
+  if(path==='/api/exchanges'){
+    if(!validDay(data.date)||typeof data.note!=='string'||!data.note.trim()||data.note.length>500)return fail(400,'Isi tanggal dan rincian pertukaran maksimal 500 karakter.');
+    await env.DB.prepare('INSERT INTO exchange_requests(member,day,note,created) VALUES (?,?,?,?)').bind(member,data.date,data.note.trim(),now()).run();return json({ok:true},201);
+  }
+  if(['/api/availability','/api/request','/api/delete'].includes(path)){
+    let months=[];
+    if(path==='/api/delete'&&['availability','request'].includes(data.kind)&&Number.isInteger(data.id)){
+      const table=data.kind==='availability'?'availability':'requests';
+      const row=await env.DB.prepare(`SELECT * FROM ${table} WHERE id=? AND member=?`).bind(data.id,member).first();
+      if(row)months.push(row.month||row.day?.slice(0,7));
+    }else{
+      months.push(data.kind&&data.kind!=='day'?data.month:data.date?.slice(0,7));
+      if(path==='/api/availability'&&Number.isInteger(data.id)){const row=await env.DB.prepare('SELECT * FROM availability WHERE id=? AND member=?').bind(data.id,member).first();if(row)months.push(row.month||row.day?.slice(0,7));}
+    }
+    for(const month of months.filter(validMonth)){if(await env.DB.prepare('SELECT month FROM schedule_month_locks WHERE month=?').bind(month).first())return json({error:'Jadwal Sudah Dibuat',code:'SCHEDULE_MONTH_LOCKED',month},409);}
+  }
   if (path === '/api/availability') {
     let {kind} = data; const day = data.date || '', month = data.month || '', location = data.location || '';
     if (!['day','month_off','month_morning','month_services'].includes(kind) || kind === 'day' && !validDay(day) || kind !== 'day' && !validMonth(month) || kind === 'month_morning' && !['Kedua lokasi','Tamsir','MOI'].includes(location)) return fail(400, 'Ketersediaan tidak valid.');
@@ -281,6 +303,7 @@ export default {
       if (new URL(request.url).pathname.startsWith('/api/')) return await handleApi(request, env);
       return env.ASSETS.fetch(request);
     } catch (error) {
+      if(String(error.message).includes('SCHEDULE_MONTH_LOCKED'))return json({error:'Jadwal Sudah Dibuat. Muat ulang dan ajukan permintaan tukar kepada Emen.',code:'SCHEDULE_MONTH_LOCKED'},409);
       console.error('Request failed:', error);
       return fail(500, 'Terjadi masalah di server.');
     }

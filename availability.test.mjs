@@ -39,7 +39,8 @@ test('API retains both Ayu leave dates and preferences; saves/edits one rule acr
  assert.equal((await call('EMEN','/api/request',{date:'2026-11-08',location:'MOI',service:'IR 4'})).status,409);
  assert.equal((await call('EMEN','/api/availability',{...payload,id,services:[selection[0]]})).status,201);leaves=(await call('EMEN','/api/state')).body.leaves;assert.equal(leaves.length,1);assert.equal(selectedServices(leaves[0]).length,1);
  let s=await get('EMEN');assert.equal((await call('EMEN','/api/schedule/generate',{month:'2026-11',revision:s.revision,availabilityRevision:s.availabilityRevision})).status,200);s=await get('EMEN');assert.ok(s.draft.filter(x=>x.member==='EMEN').every(x=>x.location==='MOI'&&x.service==='IR 1'));assert.ok(s.draft.every(x=>x.member!=='AYU'||!['2026-11-15','2026-11-22'].includes(x.date)));
- // Changing allowed services flags the draft and prevents approval of stale availability.
- assert.equal((await call('EMEN','/api/availability',{...payload,id,services:[{location:'Tamsir',service:'IR 3'}]})).status,201);const changed=await get('EMEN');assert.ok(changed.issues.some(x=>x.reason.includes('Izin')));assert.equal((await call('EMEN','/api/schedule/submit',{month:'2026-11',revision:s.revision,availabilityRevision:s.availabilityRevision})).status,409);
+ // Generated months cannot change availability; the original whitelist remains intact.
+ assert.equal((await call('EMEN','/api/availability',{...payload,id,services:[{location:'Tamsir',service:'IR 3'}]})).status,409);const changed=await get('EMEN');assert.deepEqual(changed.draft,s.draft);
+
  }finally{db.close()}
 });

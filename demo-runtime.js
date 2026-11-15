@@ -30,6 +30,17 @@ window.FrameDemo = {
     }
     const member=demo.user;
     if (!member) demoFail(401,'Silakan login.');
+    const lockedMonths=Object.keys(demo.schedules).filter(month=>demo.schedules[month]?.draft||demo.schedules[month]?.published);
+    demo.exchanges??=[];
+    if(route==='/api/exchanges'){
+      if(data&&Object.hasOwn(data,'date')){if(!demoDay(data.date)||typeof data.note!=='string'||!data.note.trim()||data.note.length>500)demoFail(400,'Isi tanggal dan rincian pertukaran.');demo.exchanges.push({id:Date.now(),member,day:data.date,note:data.note.trim(),created:Date.now()});return {ok:true};}
+      return structuredClone({lockedMonths,records:demo.exchanges.filter(x=>['EMEN','EVAN'].includes(member)||x.member===member)});
+    }
+    if(['/api/availability','/api/request','/api/delete'].includes(route)){
+      let periods=[data?.kind&&data.kind!=='day'?data.month:data?.date?.slice(0,7)];if(route==='/api/availability'&&data.id){const old=demo.leaves.find(x=>x.id===data.id&&x.member===member);if(old)periods.push(old.month||old.day?.slice(0,7))}
+      if(route==='/api/delete'){const rows=data.kind==='availability'?demo.leaves:demo.requests;const entry=rows.find(x=>x.id===data.id&&x.member===member);if(entry)periods.push(entry.month||entry.day?.slice(0,7));}
+      const locked=periods.find(x=>lockedMonths.includes(x));if(locked)demoFail(409,'Jadwal Sudah Dibuat: '+locked);
+    }
     if(route==='/api/dues'){
       demo.dues??=[];
       if(data&&Object.hasOwn(data,'periods')){

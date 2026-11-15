@@ -49,7 +49,7 @@ test('API swap is one audited write, supports undo, protects permissions, versio
   const audit=db.prepare('SELECT * FROM schedule_history WHERE revision=2').get();assert.deepEqual(JSON.parse(audit.before_json).draft,slots);assert.deepEqual(JSON.parse(audit.after_json).draft,after.draft);
   assert.equal((await swap()).status,409);assert.equal((await get()).revision,2);
   assert.equal((await swap('EMEN',{revision:2})).status,200);assert.deepEqual((await get()).draft,slots);
-  await call('DEDY','/api/availability',{kind:'day',date:'2026-11-02'});assert.equal((await swap('EMEN',{revision:3})).status,409);assert.equal((await get()).revision,3);
+  await call('DEDY','/api/availability',{kind:'day',date:'2026-12-02'});assert.equal((await swap('EMEN',{revision:3})).status,409);assert.equal((await get()).revision,3);
   db.prepare("UPDATE schedules SET status='pending',revision=revision+1 WHERE month=?").run(month);assert.equal((await swap('EMEN',{revision:4,availabilityRevision:1})).status,409);
  }finally{db.close()}
 });

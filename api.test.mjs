@@ -29,7 +29,7 @@ test('persistent database lifecycle, permissions, PK isolation, revision history
   assert.equal((await write('EMEN','submit')).status,200);
   assert.equal((await write('EMEN','assign',{index:0,member:null})).status,409);
   let pending=await get('EVAN');
-  assert.equal((await call('DEDY','/api/availability',{kind:'day',date:'2026-11-02'})).status,201);
+  assert.equal((await call('DEDY','/api/availability',{kind:'day',date:'2026-12-02'})).status,201);
   assert.equal((await write('EVAN','approve',{},pending)).status,409);
   assert.equal((await write('EMEN','approve')).status,403);
   assert.equal((await write('EVAN','reject',{note:'Periksa kembali pemerataan.'})).status,200);
@@ -51,11 +51,11 @@ test('persistent database lifecycle, permissions, PK isolation, revision history
  }finally{db.close();rmSync(dir,{recursive:true,force:true})}
 });
 
-test('availability changes flag existing drafts and prevent submission',async()=>{
+test('generated month rejects availability changes and preserves draft',async()=>{
  const db=new DatabaseSync(':memory:');migrate(db);seed(db,'IntegrationOnly!2026');const call=client({DB:d1(db)});
  try{for(const u of ['EMEN','DEDY'])await call(u,'/api/login',{username:u,password:'IntegrationOnly!2026'});
  const month='2027-01';let s=(await call('EMEN','/api/schedule?month='+month)).body;await call('EMEN','/api/schedule/generate',{month,revision:s.revision,availabilityRevision:s.availabilityRevision});
- s=(await call('EMEN','/api/schedule?month='+month)).body;const date=s.draft.find(x=>x.member==='DEDY').date;assert.equal((await call('DEDY','/api/availability',{kind:'day',date})).status,201);
- s=(await call('EMEN','/api/schedule?month='+month)).body;assert.ok(s.issues.some(x=>x.reason.includes('Izin')));assert.equal((await call('EMEN','/api/schedule/submit',{month,revision:s.revision,availabilityRevision:s.availabilityRevision})).status,409);
+ s=(await call('EMEN','/api/schedule?month='+month)).body;const date=s.draft.find(x=>x.member==='DEDY').date;assert.equal((await call('DEDY','/api/availability',{kind:'day',date})).status,409);
+ s=(await call('EMEN','/api/schedule?month='+month)).body;assert.equal(s.issues.length,0);assert.equal((await call('EMEN','/api/schedule/submit',{month,revision:s.revision,availabilityRevision:s.availabilityRevision})).status,200);
  }finally{db.close()}
 });
