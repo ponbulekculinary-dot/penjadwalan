@@ -1,3 +1,4 @@
+import {normalizedServices,selectedServices} from './availability.js';
 import {scheduleView, swapAssignments} from './schedule-view.js';
 import {generate, summary, validateAssignment, isUnavailable, MEMBER_ROLES} from './scheduler.js';
 
@@ -47,7 +48,7 @@ function validMonth(value) {
   return typeof value === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
 }
 function blocked(rows, day, location, service) {
-  return rows.some(row => row.kind === 'day' && row.day === day || row.month === day.slice(0,7) && (row.kind === 'month_off' || row.kind === 'month_morning' && (service !== 'IR 1' && service !== 'IR 2' || row.location !== 'Kedua lokasi' && row.location !== location)));
+  return isUnavailable('CURRENT',{date:day,location,service},rows.map(x=>({...x,member:'CURRENT'})));
 }
 async function scheduleAvailability(env, month) {
   return (await env.DB.prepare("SELECT * FROM availability WHERE day LIKE ? OR month=?").bind(month+'-%', month).all()).results;
@@ -72,7 +73,8 @@ async function handleApi(request, env) {
     try {
       const tables = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users','sessions','availability','requests','cash','schedules','schedule_history','app_meta')").all();
       const account = tables.results.length === 8 && await env.DB.prepare('SELECT name FROM users LIMIT 1').first();
-      if (!account) return fail(503, 'Layanan login belum siap. Coba hubungkan lagi nanti.');
+      const columns=account?await env.DB.prepare('PRAGMA table_info(availability)').all():{results:[]};
+      if (!account||!columns.results.some(x=>x.name==='services_json')) return fail(503, 'Layanan login belum siap. Coba hubungkan lagi nanti.');
       return json({service: 'frame-kamera', ready: true});
     } catch {
       return fail(503, 'Layanan login belum siap. Coba hubungkan lagi nanti.');
@@ -200,22 +202,38 @@ async function handleApi(request, env) {
     return json({status,revision:data.revision+1});
   }
   if (path === '/api/availability') {
-    const {kind} = data, day = data.date || '', month = data.month || '', location = data.location || '';
-    if (!['day','month_off','month_morning'].includes(kind) || kind === 'day' && !validDay(day) || kind !== 'day' && !validMonth(month) || kind === 'month_morning' && !['Kedua lokasi','Tamsir','MOI'].includes(location)) return fail(400, 'Ketersediaan tidak valid.');
-    const entry = {kind, day: kind === 'day' ? day : '', month: kind === 'day' ? '' : month, location: kind === 'month_morning' ? location : ''};
+    let {kind} = data; const day = data.date || '', month = data.month || '', location = data.location || '';
+    if (!['day','month_off','month_morning','month_services'].includes(kind) || kind === 'day' && !validDay(day) || kind !== 'day' && !validMonth(month) || kind === 'month_morning' && !['Kedua lokasi','Tamsir','MOI'].includes(location)) return fail(400, 'Ketersediaan tidak valid.');
+    if(kind==='month_morning'){data.services=selectedServices({kind,location});kind='month_services';}
+    if(data.id!==undefined&&!Number.isInteger(data.id))return fail(400,'Pengajuan tidak valid.');
+    const entry = {kind, day: kind === 'day' ? day : '', month: kind === 'day' ? '' : month, location: kind === 'month_morning' ? location : '',services_json:'[]'};
+    if(kind==='month_services'){try{entry.services_json=JSON.stringify(normalizedServices(data.services));}catch(error){return fail(400,error.message)}}
     const [availability, requests] = await Promise.all([
       env.DB.prepare('SELECT * FROM availability WHERE member=?').bind(member).all(),
       env.DB.prepare('SELECT * FROM requests WHERE member=?').bind(member).all()
     ]);
-    if (availability.results.some(x => x.kind === kind && (kind === 'day' ? x.day === day : x.month === month && x.location === entry.location))) return fail(409, 'Aturan ini sudah dicatat.');
+    const existing=data.id===undefined?null:availability.results.find(x=>x.id===data.id);
+    if(data.id!==undefined&&!existing)return fail(404,'Pengajuan tidak ditemukan.');
+    if(existing&&(existing.kind!=='month_services'||kind!=='month_services'||existing.month!==month))return fail(400,'Ubah pilihan ibadah pada bulan yang sama. Untuk bulan lain, buat pengajuan baru.');
+    if(kind==='month_services'&&availability.results.some(x=>x.id!==data.id&&x.month===month&&x.kind==='month_off'))return fail(409,'Bulan ini sudah OFF. Hapus aturan OFF terlebih dahulu.');
+    if (availability.results.some(x => x.id!==data.id && x.kind === kind && (kind === 'day' ? x.day === day : x.month === month && x.location === entry.location))) return fail(409, 'Aturan ini sudah dicatat.');
     if (requests.results.some(x => blocked([entry], x.day, x.location, x.service))) return fail(409, 'Ada special request yang bertentangan. Hapus request itu terlebih dahulu.');
     const affectedMonth = kind === 'day' ? day.slice(0,7) : month;
     const published = await env.DB.prepare('SELECT published_json,revision FROM schedules WHERE month=?').bind(affectedMonth).first();
     if (published?.published_json && JSON.parse(published.published_json).some(slot => slot.member === member && isUnavailable(member, slot, [{member, ...entry}]))) {
       return fail(409, 'Jadwal tanggal ini sudah terbit. Hubungi Emen untuk perubahan tugas.');
     }
-    const saved=await env.DB.prepare('INSERT INTO availability(member,kind,day,month,location,note,created) SELECT ?,?,?,?,?,?,? WHERE COALESCE((SELECT revision FROM schedules WHERE month=?),0)=?').bind(member, kind, entry.day, entry.month, entry.location, String(data.note || '').slice(0,500), now(),affectedMonth,published?.revision||0).run();
-    if(!saved.meta.changes)return fail(409,'Jadwal baru berubah. Muat ulang sebelum mengajukan izin.');
+    let saved;
+    if(existing){
+      saved=await env.DB.prepare("UPDATE availability SET services_json=?,note=? WHERE id=? AND member=? AND services_json=? AND COALESCE((SELECT revision FROM schedules WHERE month=?),0)=?")
+        .bind(entry.services_json,String(data.note||'').slice(0,500),existing.id,member,existing.services_json,affectedMonth,published?.revision||0).run();
+    }else{
+      saved=await env.DB.prepare(`INSERT INTO availability(member,kind,day,month,location,note,created,services_json)
+        SELECT ?,?,?,?,?,?,?,? WHERE COALESCE((SELECT revision FROM schedules WHERE month=?),0)=?
+        AND NOT EXISTS(SELECT 1 FROM availability WHERE member=? AND kind=? AND day=? AND month=? AND location=?)`)
+        .bind(member,kind,entry.day,entry.month,entry.location,String(data.note||'').slice(0,500),now(),entry.services_json,affectedMonth,published?.revision||0,member,kind,entry.day,entry.month,entry.location).run();
+    }
+    if(!saved.meta.changes)return fail(409,'Jadwal atau pengajuan berubah / sudah tercatat. Muat ulang sebelum menyimpan.');
     return json({ok: true}, 201);
   }
   if (path === '/api/request') {

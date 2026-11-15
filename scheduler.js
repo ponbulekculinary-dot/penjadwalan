@@ -30,8 +30,13 @@ export function sundays(month){
 export function slotsForMonth(month){
   return sundays(month).flatMap(day=>SERVICE_RULES.flatMap(rule=>rule.roles.map(role=>({date:day,location:rule.location,service:rule.service,role,start:rule.start,end:rule.end,amount:AMOUNT[role],member:null}))));
 }
+export function allowedServices(entry){
+  if(Array.isArray(entry.services))return entry.services;
+  try{const value=JSON.parse(entry.services_json||'[]');return Array.isArray(value)?value:[]}catch{return []}
+}
 export function isUnavailable(member,slot,availability){
   return availability.some(x=>x.member===member&&(
+    x.kind==='month_services'&&x.month===slot.date.slice(0,7)&&!allowedServices(x).some(s=>s.location===slot.location&&s.service===slot.service) ||
     x.kind==='day'&&x.day===slot.date ||
     x.kind==='month_off'&&x.month===slot.date.slice(0,7) ||
     x.kind==='month_morning'&&x.month===slot.date.slice(0,7)&&(

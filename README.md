@@ -1,6 +1,6 @@
 # Frame — penjadwalan tim kamera
 
-Aplikasi web/H5 untuk tim kamera Tamsir dan MOI. Anggota dapat login, mengganti password, mencatat izin seharian, OFF sebulan, hanya bisa IR 1–2 dalam sebulan, dan mengajukan pilihan ibadah. Bowo mengelola status kas; anggota lain hanya melihat status kasnya sendiri.
+Aplikasi web/H5 untuk tim kamera Tamsir dan MOI. Anggota dapat login, mengganti password, mencatat izin seharian, OFF sebulan, pilihan beberapa ibadah di MOI dan/atau Tamsir selama sebulan, dan mengajukan pilihan ibadah. Bowo mengelola status kas; anggota lain hanya melihat status kasnya sendiri.
 
 Emen menyusun draft jadwal bulanan dari tombol **Generate jadwal**, dapat mengedit penugasan, lalu mengirimnya ke Evan. Evan dapat menyetujui dan menerbitkan jadwal atau meminta revisi. Anggota melihat tugas dan total PK miliknya sendiri serta jumlah pelayanan setiap anggota. Emen dan Evan dapat melihat jadwal dan total PK seluruh tim.
 
@@ -75,7 +75,7 @@ Riwayat berisi snapshot lengkap dan PK; endpoint riwayat hanya memberi metadata 
 
 ### Batas fase ini
 
-Model ketersediaan saat ini tetap izin satu tanggal, OFF sebulan, dan pagi selama sebulan; UI menyatukan akses ke preferensi di menu Ketersediaan. Kalender multi-tanggal, edit izin, pembatasan layanan arbitrer, riwayat kas multi-bulan, dan perubahan scoring pemerataan belum termasuk fase review ini. Kelompok pemerataan lama (anggota yang bisa Switcher, termasuk Ayu) belum diubah; keputusan kelompok Ayu masih perlu dikonfirmasi. Tidak ada klaim semua fitur prototype telah selesai.
+Ketersediaan sekarang mendukung izin satu tanggal, OFF sebulan, serta pilihan beberapa ibadah di dua lokasi dalam satu aturan bulanan yang dapat diedit. Kalender multi-tanggal, edit tanggal izin, riwayat kas multi-bulan, dan perubahan scoring pemerataan masih belum termasuk. Kelompok pemerataan lama (anggota yang bisa Switcher, termasuk Ayu) belum diubah; keputusan kelompok Ayu masih perlu dikonfirmasi. Tidak ada klaim semua fitur prototype telah selesai.
 
 ## Tukar dua penugasan
 
@@ -86,3 +86,15 @@ Pada dialog edit draft milik Emen, pilih **Tukar tugas**, lalu pilih penugasan k
 Kedua slot harus terisi anggota berbeda. Pertukaran dapat lintas tanggal/role jika keduanya memenuhi role, izin, jam, jeda 60 menit, dan maksimal satu perpindahan lokasi/hari. Ini pertukaran dua penugasan, bukan pemindahan seluruh rangkaian tugas sehari. Konflik yang tetap ada setelah pertukaran ditolak dengan alasan.
 
 `npm test` menyertakan 5 tes swap (aturan dan API/database). `npm run test:swap` menguji tombol, preview, penyimpanan, undo, mode demo, dan dialog mobile 320/375/430. Untuk menyimpan screenshot fixture QA, set `FRAME_SCREENSHOT_DIR` ke direktori di luar repository.
+
+
+## Ketersediaan per ibadah dan rincian anggota
+
+- Pilih **Hanya bisa ibadah tertentu**, tentukan bulan, centang MOI dan/atau Tamsir, lalu centang beberapa ibadah masing-masing lokasi. Sekali simpan membuat satu aturan bulanan. MOI menawarkan IR 1–4, Tamsir IR 1–3, dengan jam ditampilkan (MOI IR 3 mulai 13.00, bukan dianggap pagi otomatis).
+- `month_services` menyimpan whitelist `services_json` berisi pasangan `{location,service}`. Generator, edit, swap, submit/approval, dan pengajuan preferensi memakai batasan yang sama. Lokasi/ibadah yang tidak dipilih tidak boleh dijadwalkan. Izin seharian/OFF tetap mengalahkan whitelist.
+- Satu aturan per member/bulan; mengubah pilihan memakai ID pengajuan milik sendiri. Pengajuan bulan berbeda dapat dibuat terpisah. API lama `month_morning` dinormalisasi ke whitelist agar klien lama tetap kompatibel.
+- Migration `0005_service_availability.sql` mengonversi aturan pagi lama sambil mempertahankan batas efektifnya. Jika aturan lama saling menutup (misalnya MOI saja dan Tamsir saja sekaligus), hasilnya tetap tidak tersedia di semua ibadah sampai anggota mengoreksi pilihannya. Tanggal izin individual tetap dipertahankan.
+- Rincian pribadi dan tim dikelompokkan per anggota: **Izin seharian**, **Batasan bulanan**, **Preferensi**. Semua entri yang sesuai filter ditampilkan berurutan, tanpa mengambil hanya satu tanggal/entri terbaru. Filter aktif ditandai jelas dan dapat direset. Beranda tetap ringkasan lima pengajuan terbaru dengan tautan melihat seluruh rincian.
+- Pengujian mereproduksi Ayu izin 15 dan 22 November serta preferensi 8 dan 29 November; keempatnya tetap muncul. Ini membuktikan perilaku kode dan bukan pemulihan atau pemeriksaan data sesi Netlify pengguna. Data demo lama yang hilang karena refresh tidak dapat direkonstruksi dari screenshot.
+- Jalankan `npm run db:local` sebelum memakai server lokal versi ini. Cloud/Netlify belum diperbarui; deployment produksi memerlukan migration yang sama. Mode demo masih hanya di memori tab dan reset saat refresh.
+- `npm test` mencakup 3 tes tambahan whitelist/migration/API. `npm run test:availability` menguji input, edit, rincian beberapa tanggal, persistensi, filter, mode demo, dan layar 320/375/430.

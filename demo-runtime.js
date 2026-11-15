@@ -46,14 +46,20 @@ window.FrameDemo = {
       demo.cash[demoMonth()]??={};demo.cash[demoMonth()][data.member]=data.status;return {ok:true};
     }
     if (route === '/api/availability') {
-      const {kind}=data;
-      if (!['day','month_off','month_morning'].includes(kind)||kind==='day'&&!demoDay(data.date)||kind!=='day'&&!demoValidMonth(data.month)||kind==='month_morning'&&!['Kedua lokasi','Tamsir','MOI'].includes(data.location)) demoFail(400,'Ketersediaan tidak valid.');
-      const entry={id:demo.nextId++,member,kind,day:kind==='day'?data.date:'',month:kind==='day'?'':data.month,location:kind==='month_morning'?data.location:'',note:data.note||'',created:Date.now()};
-      if (demo.leaves.some(x=>x.member===member&&x.kind===kind&&x.day===entry.day&&x.month===entry.month&&x.location===entry.location)) demoFail(409,'Aturan ini sudah dicatat.');
+      let {kind}=data;
+      if (!['day','month_off','month_morning','month_services'].includes(kind)||kind==='day'&&!demoDay(data.date)||kind!=='day'&&!demoValidMonth(data.month)||kind==='month_morning'&&!['Kedua lokasi','Tamsir','MOI'].includes(data.location)) demoFail(400,'Ketersediaan tidak valid.');
+      if(kind==='month_morning'){data.services=selectedServices({kind,location:data.location});kind='month_services';}
+      const existing=data.id===undefined?null:demo.leaves.find(x=>x.id===data.id&&x.member===member);
+      if(data.id!==undefined&&!existing)demoFail(404,'Pengajuan tidak ditemukan.');
+      if(existing&&(kind!=='month_services'||existing.kind!=='month_services'||existing.month!==data.month))demoFail(400,'Ubah pilihan ibadah pada bulan yang sama.');
+      let services=[];if(kind==='month_services'){try{services=normalizedServices(data.services)}catch(error){demoFail(400,error.message)}}
+      if(kind==='month_services'&&demo.leaves.some(x=>x.member===member&&x.month===data.month&&x.kind==='month_off'))demoFail(409,'Bulan ini sudah OFF. Hapus aturan OFF terlebih dahulu.');
+      const entry={services_json:JSON.stringify(services),id:existing?.id||demo.nextId++,member,kind,day:kind==='day'?data.date:'',month:kind==='day'?'':data.month,location:kind==='month_morning'?data.location:'',note:data.note||'',created:Date.now()};
+      if (demo.leaves.some(x=>x.id!==data.id&&x.member===member&&x.kind===kind&&x.day===entry.day&&x.month===entry.month&&x.location===entry.location)) demoFail(409,'Aturan ini sudah dicatat.');
       if (demo.requests.some(x=>x.member===member&&demoUnavailable(member,x.day,x.location,x.service,[entry]))) demoFail(409,'Ada special request yang bertentangan. Hapus request itu terlebih dahulu.');
       const published=demo.schedules[kind==='day'?data.date.slice(0,7):data.month]?.published;
       if (published?.some(x=>x.member===member&&isUnavailable(member,x,[entry]))) demoFail(409,'Jadwal tanggal ini sudah terbit. Hubungi Emen untuk perubahan tugas.');
-      demo.availabilityRevision++;demo.leaves.push(entry);return {ok:true};
+      demo.availabilityRevision++;if(existing)demo.leaves=demo.leaves.map(x=>x.id===existing.id?entry:x);else demo.leaves.push(entry);return {ok:true};
     }
     if (route === '/api/request') {
       if (!demoDay(data.date)||!SERVICE_RULES.some(x=>x.location===data.location&&x.service===data.service)) demoFail(400,'Tanggal atau ibadah tidak valid.');
