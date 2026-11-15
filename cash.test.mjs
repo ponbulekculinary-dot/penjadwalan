@@ -1,0 +1,20 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {d1,migrate,seed,client} from './test-support.mjs';
+test('cash periods persist, are unique, private, and Bowo-only',async()=>{
+ const db=new DatabaseSync(':memory:');migrate(db);seed(db,'CashTestOnly!2026');const call=client({DB:d1(db)});
+ for(const user of ['BOWO','EMEN','AYU'])assert.equal((await call(user,'/api/login',{username:user,password:'CashTestOnly!2026'})).status,200);
+ assert.equal((await call('EMEN','/api/dues',{member:'AYU',periods:['2026-08']})).status,403);
+ assert.equal((await call('BOWO','/api/dues',{member:'UNKNOWN',periods:[]})).status,400);
+ assert.equal((await call('BOWO','/api/dues',{member:'AYU',periods:['2026-13']})).status,400);
+ assert.equal((await call('BOWO','/api/dues',{member:'AYU',periods:['2026-08','2026-08']})).status,400);
+ assert.equal((await call('BOWO','/api/dues',{member:'AYU',periods:['2026-08','2026-09','2026-10']})).status,200);
+ const own=(await call('AYU','/api/dues')).body;assert.equal(own.records.filter(x=>x.status==='unpaid').length,3);assert.deepEqual(own.members,['AYU']);
+ assert.equal((await call('EMEN','/api/dues')).body.records.length,0);
+ assert.equal((await call('BOWO','/api/dues')).body.members.length,14);
+ assert.equal((await call('BOWO','/api/dues',{member:'AYU',periods:['2026-08']})).status,200);
+ assert.equal((await call('AYU','/api/dues')).body.records.filter(x=>x.status==='unpaid').length,1);
+ await call('BOWO','/api/dues',{member:'AYU',periods:[]});assert.equal((await call('AYU','/api/dues')).body.records.filter(x=>x.status==='unpaid').length,0);
+ assert.equal(db.prepare('SELECT count(*) n FROM cash').get().n,3);db.close();
+});

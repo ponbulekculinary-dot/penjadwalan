@@ -1,5 +1,7 @@
 import {readFile, writeFile, mkdir} from 'node:fs/promises';
+const cashJS=await readFile(new URL('./ui/cash.js',import.meta.url),'utf8');
 let template = await readFile(new URL('./ui/index.html', import.meta.url), 'utf8');
+template=template.replace('// CASH_SCRIPT',()=>cashJS);
 const reviewCSS=await readFile(new URL('./ui/review.css',import.meta.url),'utf8');
 const reviewJS=await readFile(new URL('./ui/review.js',import.meta.url),'utf8');
 const availabilityJS=await readFile(new URL('./ui/availability.js',import.meta.url),'utf8');

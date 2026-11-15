@@ -30,6 +30,15 @@ window.FrameDemo = {
     }
     const member=demo.user;
     if (!member) demoFail(401,'Silakan login.');
+    if(route==='/api/dues'){
+      demo.dues??=[];
+      if(data&&Object.hasOwn(data,'periods')){
+        if(member!=='BOWO')demoFail(403,'Hanya Bowo yang dapat mengubah kas.');
+        if(!demoMembers.includes(data.member)||!Array.isArray(data.periods)||data.periods.some(p=>!/^20\d{2}-(0[1-9]|1[0-2])$/.test(p)))demoFail(400,'Periode tidak valid.');
+        demo.dues=demo.dues.filter(x=>x.member!==data.member).concat([...new Set(data.periods)].map(month=>({member:data.member,month,status:'unpaid',updated_at:Date.now()})));return {ok:true};
+      }
+      return structuredClone({members:member==='BOWO'?demoMembers:[member],records:demo.dues.filter(x=>member==='BOWO'||x.member===member)});
+    }
     if (route === '/api/state') {
       const cash=demo.cash[demoMonth()]||{};
       return structuredClone({user:member,leaves:demo.leaves.filter(x=>x.member===member),requests:demo.requests.filter(x=>x.member===member),cash:member==='BOWO'?cash:cash[member]?{[member]:cash[member]}:{},month:demoMonth()});

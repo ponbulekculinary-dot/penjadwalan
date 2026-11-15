@@ -96,6 +96,15 @@ async function handleApi(request, env) {
     return json({month,...scheduleView(record?{draft:record.draft_json?JSON.parse(record.draft_json):null,published:record.published_json?JSON.parse(record.published_json):null,status:record.status,revision:record.revision,approvalNote:record.approval_note,publishedAt:record.published_at}:null,member,availability,requests.results,history.results,epoch.value)});
   }
 
+  if (request.method === 'GET' && path === '/api/dues') {
+    const member = await memberFromSession(request, env);
+    if (!member) return fail(401, 'Silakan login.');
+    const records = member === 'BOWO'
+      ? await env.DB.prepare('SELECT member,month,status,updated_at FROM cash ORDER BY month').all()
+      : await env.DB.prepare('SELECT member,month,status,updated_at FROM cash WHERE member=? ORDER BY month').bind(member).all();
+    const users = await env.DB.prepare("SELECT name FROM users WHERE name=? OR ?='BOWO' ORDER BY name").bind(member,member).all();
+    return json({members:users.results.map(x=>x.name),records:records.results});
+  }
   if (request.method === 'GET' && path === '/api/state') {
     const member = await memberFromSession(request, env);
     if (!member) return fail(401, 'Silakan login.');
@@ -143,10 +152,18 @@ async function handleApi(request, env) {
     await env.DB.prepare('UPDATE users SET password_hash=? WHERE name=?').bind(await hashPassword(next), member).run();
     return json({ok: true});
   }
+  if (path === '/api/dues') {
+    if (member !== 'BOWO') return fail(403,'Hanya Bowo yang dapat mengubah kas.');
+    const user = typeof data.member === 'string' && await env.DB.prepare('SELECT name FROM users WHERE name=?').bind(data.member).first();
+    if (!user || !Array.isArray(data.periods) || data.periods.length>120 || data.periods.some(x=>typeof x!=='string'||!/^20\d{2}-(0[1-9]|1[0-2])$/.test(x)) || new Set(data.periods).size!==data.periods.length) return fail(400,'Anggota atau periode tidak valid.');
+    const statements=[env.DB.prepare("UPDATE cash SET status='paid',updated_by=?,updated_at=? WHERE member=? AND status='unpaid'").bind(member,now(),data.member),...data.periods.map(period=>env.DB.prepare("INSERT INTO cash(month,member,status,updated_by,updated_at) VALUES (?,?,'unpaid',?,?) ON CONFLICT(month,member) DO UPDATE SET status='unpaid',updated_by=excluded.updated_by,updated_at=excluded.updated_at").bind(period,data.member,member,now()))];
+    await env.DB.batch(statements);
+    return json({ok:true});
+  }
   if (path === '/api/cash') {
     if (member !== 'BOWO') return fail(403, 'Hanya Bowo yang bisa mengubah status kas.');
     if (!MEMBERS.has(data.member) || !['paid','unpaid'].includes(data.status)) return fail(400, 'Status kas tidak valid.');
-    await env.DB.prepare('INSERT INTO cash VALUES (?,?,?,?) ON CONFLICT(month,member) DO UPDATE SET status=excluded.status,updated_by=excluded.updated_by').bind(monthNow(), data.member, data.status, member).run();
+    await env.DB.prepare('INSERT INTO cash(month,member,status,updated_by) VALUES (?,?,?,?) ON CONFLICT(month,member) DO UPDATE SET status=excluded.status,updated_by=excluded.updated_by').bind(monthNow(), data.member, data.status, member).run();
     return json({ok: true});
   }
   if (path.startsWith('/api/schedule/')) {

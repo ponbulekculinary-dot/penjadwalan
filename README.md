@@ -115,3 +115,11 @@ A green workflow means the CLI production deployment and HTML verification succe
 Deployment verification checks the authenticated Netlify API for `ready` state, the correct site, and the published deployment ID. It then checks both the deployment HTTPS permalink and the existing production URL for HTTP 200, HTML content type, a complete HTML document, and the exact build marker. This tolerates hosting-injected HTML without accepting an old build or login/error page. Same-origin redirects are logged; cross-origin redirects fail verification. Fetches time out after 20 seconds. Failed verification retries up to 8 times, 10 seconds apart, then fails the job. Logs include status/redirect chain, content type, byte length, and failure reason, without dumping HTML or tokens.
 
 The original run's exact mismatch could not be established from this workspace: GitHub Actions log access returned Forbidden, and the network proxy rejected the Netlify CONNECT request. Byte-for-byte comparison was fragile, but hosting injection or rollout timing are possible causes, not confirmed findings. The next workflow run supplies the missing HTTP diagnostics.
+
+### Blue UI and multi-period cash preview
+
+Feature branch `ui/phase-2-preview` applies the supplied navy/blue palette across existing screens. `npm run build` produces the static demo in `public/index.html`; open it and choose demo, then use `bowo` / `Password123` to inspect cash editing. Demo data remains temporary and explicitly labeled.
+
+Authenticated Worker endpoints `GET/POST /api/dues` use existing `users.name` IDs; only `BOWO` can edit/read all dues, while other members receive their own records. Migration `0006_cash_periods.sql` adds an update timestamp without removing existing cash records. Writes use a D1 atomic batch, and only explicitly recorded unpaid periods count. Apply all migrations to the configured D1 before activating the updated Worker. No remote database or production deployment was changed. Cloud database credentials/ID and deployment approval are still required.
+
+QA: `node cash.test.mjs`, `node cash-browser.test.mjs` (localhost/Chromium), plus existing schedule/login/availability suites. Browser screenshots are saved under `/workspace/design/blue` by the cash browser test. Safari has not been tested in this Linux environment.
