@@ -30,8 +30,20 @@ window.FrameDemo = {
     }
     const member=demo.user;
     if (!member) demoFail(401,'Silakan login.');
+    demo.inactive??=[];
+    if(route==='/api/generation-members'){
+      if(member!=='EMEN')demoFail(403,'Hanya Emen.');
+      if(data&&Object.hasOwn(data,'active')){if(!demoMembers.includes(data.member)||typeof data.active!=='boolean')demoFail(400,'Pilihan anggota tidak valid.');demo.inactive=demo.inactive.filter(n=>n!==data.member);if(!data.active)demo.inactive.push(data.member);return {ok:true};}
+      return {members:demoMembers.map(name=>({name,schedule_active:demo.inactive.includes(name)?0:1}))};
+    }
     const lockedMonths=Object.keys(demo.schedules).filter(month=>demo.schedules[month]?.draft||demo.schedules[month]?.published);
     demo.exchanges??=[];
+    if(route==='/api/leave-dates'){
+      if(!Array.isArray(data.dates)||!data.dates.length||data.dates.length>31||data.dates.some(x=>!demoDay(x)))demoFail(400,'Pilih tanggal valid.');
+      const locked=data.dates.filter(x=>lockedMonths.includes(x.slice(0,7)));if(locked.length)demoFail(409,'Jadwal Sudah Dibuat: '+locked[0].slice(0,7));
+      for(const day of data.dates)if(demo.leaves.some(x=>x.member===member&&x.day===day&&x.kind==='day')||demo.requests.some(x=>x.member===member&&x.day===day))demoFail(409,'Tanggal sudah tercatat atau memiliki preferensi.');
+      for(const day of [...new Set(data.dates)])demo.leaves.push({id:Math.max(0,...demo.leaves.map(x=>x.id))+1,member,kind:'day',day,month:'',location:'',note:String(data.note||'').slice(0,500),created:Date.now()});demo.availabilityRevision++;return {ok:true};
+    }
     if(route==='/api/exchanges'){
       if(data&&Object.hasOwn(data,'date')){if(!demoDay(data.date)||typeof data.note!=='string'||!data.note.trim()||data.note.length>500)demoFail(400,'Isi tanggal dan rincian pertukaran.');demo.exchanges.push({id:Date.now(),member,day:data.date,note:data.note.trim(),created:Date.now()});return {ok:true};}
       return structuredClone({lockedMonths,records:demo.exchanges.filter(x=>['EMEN','EVAN'].includes(member)||x.member===member)});
@@ -105,7 +117,7 @@ window.FrameDemo = {
     if (route === '/api/schedule/generate') {
       if (member!=='EMEN') demoFail(403,'Hanya Emen yang bisa generate jadwal.');
       if (record?.status==='pending') demoFail(409,'Jadwal sedang menunggu keputusan Evan.');
-      const result=generate(month,demo.leaves,demo.requests);
+      const result=generate(month,[...demo.leaves,...demo.inactive.map(member=>({member,kind:'month_off',month}))],demo.requests);
       demo.schedules[month]={...record,draft:result.slots,status:'draft',approvalNote:null};track(demo.schedules[month]);return structuredClone(result);
     }
     if (!record?.draft) demoFail(404,'Buat draft jadwal dulu.');

@@ -96,6 +96,10 @@ async function handleApi(request, env) {
     return json({month,...scheduleView(record?{draft:record.draft_json?JSON.parse(record.draft_json):null,published:record.published_json?JSON.parse(record.published_json):null,status:record.status,revision:record.revision,approvalNote:record.approval_note,publishedAt:record.published_at}:null,member,availability,requests.results,history.results,epoch.value)});
   }
 
+  if(request.method==='GET'&&path==='/api/generation-members'){
+    const member=await memberFromSession(request,env);if(member!=='EMEN')return fail(member?403:401,'Hanya Emen yang dapat mengelola anggota penjadwalan.');
+    return json({members:(await env.DB.prepare('SELECT name,schedule_active FROM users ORDER BY name').all()).results});
+  }
   if(request.method==='GET'&&path==='/api/exchanges'){
     const member=await memberFromSession(request,env);if(!member)return fail(401,'Silakan login.');
     const records=['EMEN','EVAN'].includes(member)?await env.DB.prepare('SELECT * FROM exchange_requests ORDER BY created DESC').all():await env.DB.prepare('SELECT * FROM exchange_requests WHERE member=? ORDER BY created DESC').bind(member).all();
@@ -189,7 +193,8 @@ async function handleApi(request, env) {
     } else if (action==='generate') {
       if (status==='pending') return fail(409,'Jadwal sedang menunggu keputusan Evan.');
       const requests=await env.DB.prepare('SELECT * FROM requests WHERE day LIKE ?').bind(month+'-%').all();
-      slots=generate(month,availability,requests.results).slots;status='draft';
+      const inactive=await env.DB.prepare('SELECT name FROM users WHERE schedule_active=0').all();
+      slots=generate(month,[...availability,...inactive.results.map(x=>({member:x.name,kind:'month_off',month}))],requests.results).slots;status='draft';
     } else {
       if (!slots) return fail(404,'Buat draft jadwal dulu.');
       if (status!==(['approve','reject'].includes(action)?'pending':'draft')) return fail(409,'Status jadwal berubah atau sedang terkunci untuk review.');
@@ -224,6 +229,21 @@ async function handleApi(request, env) {
         action==='approve'?member:record?.approved_by||null,data.availabilityRevision,data.revision).run();
     if(!result.meta.changes)return fail(409,'Jadwal atau ketersediaan berubah. Muat ulang sebelum melanjutkan.');
     return json({status,revision:data.revision+1});
+  }
+  if(path==='/api/leave-dates'){
+    if(!Array.isArray(data.dates)||!data.dates.length||data.dates.length>31||data.dates.some(x=>!validDay(x))||new Set(data.dates).size!==data.dates.length)return fail(400,'Pilih 1–31 tanggal berbeda yang valid.');
+    const blocked=[];for(const date of data.dates)if(await env.DB.prepare('SELECT month FROM schedule_month_locks WHERE month=?').bind(date.slice(0,7)).first())blocked.push(date);
+    if(blocked.length)return json({code:'SCHEDULE_MONTH_LOCKED',month:blocked[0].slice(0,7),blockedDates:blocked,error:'Tanggal dikunci: '+blocked.join(', ')},409);
+    for(const date of data.dates)if(await env.DB.prepare("SELECT id FROM requests WHERE member=? AND day=?").bind(member,date).first())return fail(409,'Hapus preferensi yang bertentangan pada '+date+' terlebih dahulu.');
+    for(const date of data.dates)if(await env.DB.prepare("SELECT id FROM availability WHERE member=? AND kind='day' AND day=?").bind(member,date).first())return fail(409,'Izin sudah tercatat: '+date);
+    await env.DB.batch(data.dates.map(date=>env.DB.prepare("INSERT INTO availability(member,kind,day,month,location,note,created,services_json) VALUES (?,'day',?,'','',?,?, '[]')").bind(member,date,String(data.note||'').slice(0,500),now())));
+    return json({ok:true},201);
+  }
+  if(path==='/api/generation-members'){
+    if(member!=='EMEN')return fail(403,'Hanya Emen yang dapat mengelola anggota penjadwalan.');
+    if(typeof data.active!=='boolean'||typeof data.member!=='string')return fail(400,'Pilihan anggota tidak valid.');
+    const result=await env.DB.prepare('UPDATE users SET schedule_active=? WHERE name=?').bind(data.active?1:0,data.member).run();
+    if(!result.meta.changes)return fail(404,'Anggota tidak ditemukan.');return json({ok:true});
   }
   if(path==='/api/exchanges'){
     if(!validDay(data.date)||typeof data.note!=='string'||!data.note.trim()||data.note.length>500)return fail(400,'Isi tanggal dan rincian pertukaran maksimal 500 karakter.');
